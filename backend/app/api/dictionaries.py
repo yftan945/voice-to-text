@@ -3,10 +3,11 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter
 from pydantic import BaseModel
 
 from .. import dictionary_store
+from ..i18n import ApiError
 
 router = APIRouter(prefix="/api/dictionaries")
 
@@ -30,9 +31,9 @@ class RuleBody(BaseModel):
 
 def _check(name: str | None, content: str | None) -> None:
     if name is not None and not name.strip():
-        raise HTTPException(400, "請輸入字典名稱")
+        raise ApiError(400, "dictionary.name_required")
     if content is not None and len(content) > MAX_CONTENT:
-        raise HTTPException(400, "字典內容太長")
+        raise ApiError(400, "dictionary.content_too_long")
 
 
 @router.get("")
@@ -50,7 +51,7 @@ def create_dict(body: DictBody) -> dict[str, Any]:
 def get_dict(dict_id: int) -> dict[str, Any]:
     d = dictionary_store.get(dict_id)
     if d is None:
-        raise HTTPException(404, "找不到字典")
+        raise ApiError(404, "dictionary.not_found")
     return d
 
 
@@ -59,7 +60,7 @@ def update_dict(dict_id: int, body: DictPatch) -> dict[str, Any]:
     _check(body.name, body.content)
     d = dictionary_store.update(dict_id, name=body.name.strip() if body.name else None, content=body.content)
     if d is None:
-        raise HTTPException(404, "找不到字典")
+        raise ApiError(404, "dictionary.not_found")
     return d
 
 
@@ -67,15 +68,15 @@ def update_dict(dict_id: int, body: DictPatch) -> dict[str, Any]:
 def add_rule(dict_id: int, body: RuleBody) -> dict[str, Any]:
     try:
         d = dictionary_store.add_rule(dict_id, body.wrong, body.correct)
-    except ValueError as e:
-        raise HTTPException(400, str(e)) from e
+    except ValueError as e:  # dictionary.add_rule 只會因為錯字／正字沒填或相同丟 ValueError
+        raise ApiError(400, "dictionary.rule.invalid") from e
     if d is None:
-        raise HTTPException(404, "找不到字典")
+        raise ApiError(404, "dictionary.not_found")
     return d
 
 
 @router.delete("/{dict_id}")
 def delete_dict(dict_id: int) -> dict[str, Any]:
     if not dictionary_store.delete(dict_id):
-        raise HTTPException(404, "找不到字典")
+        raise ApiError(404, "dictionary.not_found")
     return {"deleted": dict_id}

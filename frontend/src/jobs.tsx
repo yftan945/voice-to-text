@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
-import { api } from "./api";
+import { api, withLang } from "./api";
+import { msg, showMsg, textMsg, useLang, useT, type Msg } from "./i18n";
 import type { Job } from "./types";
 
 /** 排隊中或處理中（任務頁列出、導覽列「任務」徽章計數的對象）。 */
@@ -29,12 +30,19 @@ const JobsContext = createContext<JobsValue>({ jobs: null, error: "", merge: () 
  */
 export function JobsProvider({ children }: { children: ReactNode }) {
   const [jobs, setJobs] = useState<Job[] | null>(null);
-  const [error, setError] = useState("");
+  // 錯誤存 key 或原文（見 Msg），提供出去時才翻成目前語言
+  const [error, setError] = useState<Msg | null>(null);
+  const t = useT();
+  // 換語言時重新連線（網址帶 ?lang=）：第一個事件是完整清單，後端文字（步驟、錯誤、警告）換成新語言
+  const lang = useLang();
   useEffect(() => {
     // SSE 的第一個事件就是全部任務；比 api.jobs() 早回來時直接當初始清單
+    let alive = true;
     api.jobs().then(
       (list) => setJobs((prev) => prev ?? list),
-      (e) => setError(e.message),
+      (e) => {
+        if (alive) setError(textMsg(e.message));
+      },
     );
     let es: EventSource | null = null;
     let hideTimer = 0;
@@ -43,7 +51,7 @@ export function JobsProvider({ children }: { children: ReactNode }) {
     const open = () => {
       if (es) return;
       window.clearTimeout(retryTimer);
-      const src = new EventSource("/api/events");
+      const src = new EventSource(withLang("/api/events"));
       es = src;
       src.addEventListener("jobs", (ev) => {
         const { changed, removed, full } = JSON.parse((ev as MessageEvent).data) as {
@@ -52,7 +60,7 @@ export function JobsProvider({ children }: { children: ReactNode }) {
           full?: boolean;
         };
         retries = 0;
-        setError("");
+        setError(null);
         setJobs((prev) => {
           // 連線（含斷線重連）後的第一個事件是完整清單：整份替換，斷線期間被刪掉的任務才不會留著
           if (!prev || full) return [...changed].sort(byNewest);
@@ -67,7 +75,7 @@ export function JobsProvider({ children }: { children: ReactNode }) {
         if (src.readyState !== EventSource.CLOSED || es !== src) return;
         src.close();
         es = null;
-        setError("與伺服器的連線中斷，正在重新連線…");
+        setError(msg("jobs.reconnecting"));
         const ms = RETRY_MS[Math.min(retries, RETRY_MS.length - 1)];
         retries += 1;
         retryTimer = window.setTimeout(() => {
@@ -99,12 +107,13 @@ export function JobsProvider({ children }: { children: ReactNode }) {
     window.addEventListener("pageshow", onShow);
     document.addEventListener("visibilitychange", onVisibility);
     return () => {
+      alive = false;
       window.removeEventListener("pagehide", close);
       window.removeEventListener("pageshow", onShow);
       document.removeEventListener("visibilitychange", onVisibility);
       close();
     };
-  }, []);
+  }, [lang]);
   // SSE 之後也會推送同樣的變動；先併回來畫面才不用等下一秒
   const merge = useCallback(
     (list: Job[]) =>
@@ -117,7 +126,10 @@ export function JobsProvider({ children }: { children: ReactNode }) {
     [],
   );
   const remove = useCallback((id: string) => setJobs((prev) => prev?.filter((j) => j.id !== id) ?? prev), []);
-  const value = useMemo(() => ({ jobs, error, merge, remove }), [jobs, error, merge, remove]);
+  const value = useMemo(
+    () => ({ jobs, error: error ? showMsg(t, error) : "", merge, remove }),
+    [jobs, error, t, merge, remove],
+  );
   return <JobsContext.Provider value={value}>{children}</JobsContext.Provider>;
 }
 

@@ -73,6 +73,20 @@
   --draw-ms: 600ms;
 }
 
+/*
+ * 英文介面：拉丁字型優先（CJK 字型會把 “ ” ’ … 畫成全形），中文字（檔名、講者名）再退回 TC 字型。
+ * 中文逐字稿的泡泡仍用原本的 TC 字型（.thread.zh，見 result.css），中文的全形標點才對。
+ */
+html:lang(en) {
+  --serif: Georgia, "Noto Serif", "Noto Serif TC", "Songti TC", "Source Han Serif TC", serif;
+  --sans: system-ui, -apple-system, "Segoe UI", "Noto Sans", "Noto Sans TC", "PingFang TC", "Heiti TC", sans-serif;
+  /* 中文內容用的字型（同 :root 的 --serif／--sans） */
+  --serif-zh: "Noto Serif TC", "Songti TC", "Source Han Serif TC", serif;
+  --sans-zh: "Noto Sans TC", "PingFang TC", "Heiti TC", system-ui, sans-serif;
+  /* Georgia 預設是舊式數字（高低不齊），檔名裡的日期、週數會很亂 */
+  font-variant-numeric: lining-nums;
+}
+
 :root[data-theme="light"] { color-scheme: light; }
 :root[data-theme="dark"] { color-scheme: dark; }
 

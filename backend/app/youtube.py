@@ -11,6 +11,8 @@ import urllib.parse
 from dataclasses import dataclass
 from typing import Any
 
+from .i18n import DEFAULT_LANG, LocalizedError, Message, has, localize, msg
+
 # 只接受這些網域（不含子網域萬用字元，避免 evil.youtube.com.example 這類）
 ALLOWED_HOSTS = frozenset({
     "youtube.com", "www.youtube.com", "m.youtube.com", "music.youtube.com",
@@ -27,8 +29,8 @@ _MIX_PREFIXES = ("RD", "UL")
 MAX_URL_LENGTH = 2048
 
 
-class InvalidUrl(ValueError):
-    """網址不是可以處理的 YouTube 網址；訊息可以直接顯示給使用者。"""
+class InvalidUrl(LocalizedError, ValueError):
+    """網址不是可以處理的 YouTube 網址；訊息（msg）可以直接顯示給使用者。"""
 
 
 @dataclass(frozen=True)
@@ -57,23 +59,23 @@ def parse_url(raw: str) -> ParsedUrl:
     """解析 youtube.com/watch、youtu.be、shorts、live、embed 與播放清單（list=）網址。"""
     s = (raw or "").strip()
     if not s:
-        raise InvalidUrl("網址是空的")
+        raise InvalidUrl("youtube.url.empty")
     if len(s) > MAX_URL_LENGTH:
-        raise InvalidUrl("網址太長")
+        raise InvalidUrl("youtube.url.too_long")
     if "://" not in s:
         s = "https://" + s
     try:
         u = urllib.parse.urlsplit(s)
         port = u.port
     except ValueError as e:
-        raise InvalidUrl("網址格式錯誤") from e
+        raise InvalidUrl("youtube.url.malformed") from e
     if u.scheme.lower() not in ("http", "https"):
-        raise InvalidUrl("只接受 http／https 的 YouTube 網址")
+        raise InvalidUrl("youtube.url.scheme")
     if u.username is not None or u.password is not None:
-        raise InvalidUrl("網址格式錯誤")
+        raise InvalidUrl("youtube.url.malformed")
     host = (u.hostname or "").lower().rstrip(".")
     if host not in ALLOWED_HOSTS or port not in (None, 80, 443):
-        raise InvalidUrl("只接受 YouTube 網址（youtube.com、youtu.be）")
+        raise InvalidUrl("youtube.url.not_youtube")
 
     query = urllib.parse.parse_qs(u.query)
     parts = [p for p in u.path.split("/") if p]
@@ -94,7 +96,7 @@ def parse_url(raw: str) -> ParsedUrl:
         return ParsedUrl(kind="playlist", playlist_id=list_id, video_id=video_id)
     if video_id:
         return ParsedUrl(kind="video", video_id=video_id)
-    raise InvalidUrl("看不出是哪一部影片或播放清單，請貼影片或播放清單的網址")
+    raise InvalidUrl("youtube.url.unrecognized")
 
 
 _TOKEN_RE = re.compile(r"[^\s,，]+")
@@ -134,28 +136,30 @@ CAPTION_TIERS: list[list[tuple[str, bool]]] = [
     [("en", True)],
 ]
 
-LANGUAGE_NAMES = {
-    "zh-tw": "台灣繁體中文", "zh-hant": "繁體中文", "zh-hk": "香港繁體中文", "zh-mo": "澳門繁體中文",
-    "zh": "中文", "zh-hans": "簡體中文", "zh-cn": "簡體中文", "zh-sg": "簡體中文（新加坡）",
-    "en": "英文", "ja": "日文", "ko": "韓文", "fr": "法文", "de": "德文", "es": "西班牙文",
-    "vi": "越南文", "th": "泰文", "id": "印尼文", "ms": "馬來文", "nan": "台語", "hak": "客語",
-}
+def language_param(code: str | None) -> Message | str:
+    """語言名稱（放進訊息參數用）：認得的語言是訊息（依介面語言顯示），認不得的照原本的代碼。
 
-
-def language_name(code: str | None) -> str:
+    名稱表在 i18n.MESSAGES 的 `language.<代碼小寫>`；先找完整代碼（zh-TW），再找主要語言（en-US → en）。
+    """
     if not code:
         return ""
     key = code.lower()
-    if key in LANGUAGE_NAMES:
-        return LANGUAGE_NAMES[key]
+    if has(f"language.{key}"):
+        return msg(f"language.{key}")
     base = key.split("-")[0]
-    return LANGUAGE_NAMES.get(base, code)
+    if has(f"language.{base}"):
+        return msg(f"language.{base}")
+    return code
 
 
-def caption_label(lang: str | None) -> str:
-    """結果頁的文字來源說明，例如「YouTube 人工字幕（台灣繁體中文）」。"""
-    name = language_name(lang)
-    return f"YouTube 人工字幕（{name}）" if name else "YouTube 人工字幕"
+def language_name(code: str | None, lang: str = DEFAULT_LANG) -> str:
+    return localize(language_param(code), lang)
+
+
+def caption_label(lang: str | None) -> Message:
+    """結果頁的文字來源說明，例如「YouTube 人工字幕（台灣繁體中文）」（可延後翻譯的訊息）。"""
+    name = language_param(lang)
+    return msg("youtube.caption_label", language=name) if name else msg("youtube.caption_label_plain")
 
 
 def _matches(code: str, base: str, prefix: bool) -> bool:
@@ -214,57 +218,46 @@ def video_summary(info: dict[str, Any]) -> dict[str, Any]:
 
 
 class YouTubeError(RuntimeError):
-    """YouTube 無法處理（私人影片、地區限制、下載失敗等）；message 是給使用者看的說明。"""
+    """YouTube 無法處理（私人影片、地區限制、下載失敗等）。
 
-    def __init__(self, code: str, message: str, status: int = 422, detail: str = "") -> None:
-        super().__init__(message)
+    msg 是給使用者看的說明（可延後翻譯的訊息，舊寫法也可以直接給文字）；message 是它的 zh-TW 文字（log 用）。
+    """
+
+    def __init__(self, code: str, message: Message | str, status: int = 422, detail: str = "") -> None:
+        self.msg: Message | str = message
+        self.message: str = localize(message, DEFAULT_LANG)
+        super().__init__(self.message)
         self.code = code
-        self.message = message
         self.status = status  # API 回應碼：422＝影片本身的問題、502＝連線／YouTube 端暫時的問題
         # yt-dlp 原始錯誤的最後一行（已遮掉路徑），記 log 與組警告訊息用（例如取出 HTTP 狀態碼）
         self.detail = detail
 
 
-# (代碼, 比對字串（小寫）, 訊息, HTTP 狀態)；由上往下第一個符合的為準
-_ERROR_RULES: list[tuple[str, tuple[str, ...], str, int]] = [
-    ("private", ("private video", "this video is private"),
-     "這是私人影片，只有上傳者授權的帳號能看。請確認網址，或請上傳者改成公開或「不公開（知道連結的人可以看）」後再試。", 422),
-    ("members_only", ("members-only", "join this channel", "channel's members", "members only"),
-     "這是頻道會員限定的影片，需要會員帳號才能觀看，目前不支援。可以自行取得音檔後用上傳檔案的方式轉錄。", 422),
-    ("age_restricted", ("confirm your age", "age-restricted", "age restricted", "inappropriate for some users"),
-     "這部影片有年齡限制，需要登入 YouTube 才能觀看，目前不支援。可以自行取得音檔後用上傳檔案的方式轉錄。", 422),
+# (代碼, 比對字串（小寫）, HTTP 狀態)；由上往下第一個符合的為準。給使用者看的說明是 i18n 的 youtube.error.<代碼>
+_ERROR_RULES: list[tuple[str, tuple[str, ...], int]] = [
+    ("private", ("private video", "this video is private"), 422),
+    ("members_only", ("members-only", "join this channel", "channel's members", "members only"), 422),
+    ("age_restricted", ("confirm your age", "age-restricted", "age restricted", "inappropriate for some users"), 422),
     ("geo_restricted", ("not made this video available in your country", "not available in your country",
-                        "from your location", "geo restriction", "geo-restrict"),
-     "這部影片有地區限制，在伺服器所在的地區（台灣）無法觀看。", 422),
+                        "from your location", "geo restriction", "geo-restrict"), 422),
     ("live_not_ended", ("live event will begin", "premieres in", "premiere will begin", "is_upcoming",
-                        "this live event", "live stream recording is not available", "is_live", "post_live"),
-     "直播或首播還沒結束（或還沒開始），YouTube 還沒有完整的影片可以下載。請等直播結束、YouTube 處理完成後再試。", 422),
-    ("payment", ("requires payment", "purchase", "rental"),
-     "這是付費（購買或租借）內容，無法下載。", 422),
-    ("playlist_missing", ("the playlist does not exist", "playlist does not exist"),
-     "播放清單不存在或是私人清單。請確認網址，或把清單改成公開／不公開後再試。", 422),
+                        "this live event", "live stream recording is not available", "is_live", "post_live"), 422),
+    ("payment", ("requires payment", "purchase", "rental"), 422),
+    ("playlist_missing", ("the playlist does not exist", "playlist does not exist"), 422),
     # 只比對 YouTube 對影片本身的說明；不能用「not found」「does not exist」這種寬鬆的字，
     # 否則格式網址的 HTTP 404 也會被誤判成影片下架
     ("removed", ("has been removed", "video unavailable", "this video is unavailable", "no longer available",
                  "account associated with this video has been terminated", "this video does not exist",
-                 "video does not exist", "this video isn't available anymore"),
-     "影片已被下架、刪除或不存在。請確認網址是否正確。", 422),
-    ("bot_check", ("not a bot", "captcha", "sign in to confirm"),
-     "YouTube 暫時要求驗證（懷疑是機器人），所以拒絕下載。請過一段時間再試；如果一直發生，可能需要更新 yt-dlp 或設定 PO Token（見 README）。", 502),
-    ("rate_limited", ("try again later", "http error 429", "too many requests", "rate-limited"),
-     "YouTube 暫時限制了這台伺服器的請求次數（最長約 1 小時），請稍後再試。", 502),
-    ("expired", ("http error 404", "http error 410"),
-     "YouTube 回應找不到檔案（HTTP 404／410），通常是下載網址已過期。請重新轉錄再試一次。", 502),
-    ("forbidden", ("http error 403", "403: forbidden"),
-     "YouTube 拒絕下載（HTTP 403），通常是 YouTube 改版造成。請稍後再試；如果一直發生，需要更新 yt-dlp。", 502),
+                 "video does not exist", "this video isn't available anymore"), 422),
+    ("bot_check", ("not a bot", "captcha", "sign in to confirm"), 502),
+    ("rate_limited", ("try again later", "http error 429", "too many requests", "rate-limited"), 502),
+    ("expired", ("http error 404", "http error 410"), 502),
+    ("forbidden", ("http error 403", "403: forbidden"), 502),
     ("network", ("unable to download webpage", "unable to download api page", "name resolution",
                  "temporary failure", "network is unreachable", "timed out", "connection reset",
-                 "connection refused", "urlopen error", "read timed out", "getaddrinfo failed"),
-     "連不上 YouTube，請確認伺服器的網路後再試。", 502),
-    ("too_large", ("larger than max-filesize", "file is larger than"),
-     "音訊檔超過大小上限，無法下載。", 422),
-    ("no_format", ("requested format is not available", "no video formats found"),
-     "找不到可以下載的音訊格式（可能是 YouTube 改版，需要更新 yt-dlp）。", 502),
+                 "connection refused", "urlopen error", "read timed out", "getaddrinfo failed"), 502),
+    ("too_large", ("larger than max-filesize", "file is larger than"), 422),
+    ("no_format", ("requested format is not available", "no video formats found"), 502),
 ]
 
 
@@ -289,37 +282,41 @@ def classify_error(text: str) -> YouTubeError:
     line = last_error_line(text)
     low = (line or text or "").lower()
     detail = mask_paths(line)[:300]
-    for code, needles, message, status in _ERROR_RULES:
+    for code, needles, status in _ERROR_RULES:
         if any(n in low for n in needles):
-            return YouTubeError(code, message, status, detail=detail)
-    return YouTubeError("unknown", f"YouTube 下載失敗：{detail or '未知錯誤'}", 502, detail=detail)
+            return YouTubeError(code, _message(code), status, detail=detail)
+    return unknown_error(detail)
+
+
+def unknown_error(detail: str | Message, status: int = 502) -> YouTubeError:
+    """沒有對應規則的下載失敗：「YouTube 下載失敗：<原因>」。detail 可以是 yt-dlp 的原文或訊息。"""
+    shown = detail or msg("youtube.error.unknown_detail")
+    raw = detail if isinstance(detail, str) else localize(detail, DEFAULT_LANG)
+    return YouTubeError("unknown", msg("youtube.error.unknown", detail=shown), status, detail=raw)
 
 
 def check_playable(summary: dict[str, Any]) -> None:
     """直播中、尚未開始、剛結束還在處理的影片不能下載；會員限定等也在這裡擋（有資訊時）。"""
     live = summary.get("live_status")
     if live == "is_live":
-        raise YouTubeError("live_not_ended", "直播還在進行中，YouTube 還沒有完整的影片。請等直播結束、YouTube 處理完成後再試。")
+        raise YouTubeError("live_not_ended", msg("youtube.error.live_in_progress"))
     if live == "is_upcoming":
-        raise YouTubeError("live_not_ended", "直播或首播還沒開始，沒有內容可以下載。請等播出結束後再試。")
+        raise YouTubeError("live_not_ended", msg("youtube.error.live_upcoming"))
     if live == "post_live":
-        raise YouTubeError("live_not_ended", "直播剛結束，YouTube 還在處理影片，暫時無法完整下載。請過幾個小時再試。")
+        raise YouTubeError("live_not_ended", msg("youtube.error.post_live"))
     availability = summary.get("availability")
     if availability == "subscriber_only":
         raise YouTubeError("members_only", _message("members_only"))
     if availability == "premium_only":
-        raise YouTubeError("payment", "這是 YouTube Premium 限定內容，無法下載。")
+        raise YouTubeError("payment", msg("youtube.error.premium_only"))
     if availability == "needs_auth":
         raise YouTubeError("age_restricted", _message("age_restricted"))
     if availability == "private":
         raise YouTubeError("private", _message("private"))
 
 
-def _message(code: str) -> str:
-    for c, _, message, _ in _ERROR_RULES:
-        if c == code:
-            return message
-    return ""
+def _message(code: str) -> Message:
+    return msg(f"youtube.error.{code}")
 
 
 def safe_filename(title: str, fallback: str = "transcript", limit: int = 120) -> str:

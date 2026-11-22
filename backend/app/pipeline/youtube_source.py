@@ -17,13 +17,14 @@ from pathlib import Path
 from typing import Any, Callable
 
 from .. import storage, youtube_cache
+from ..i18n import Message, is_message, msg
 from ..jobs import queue
-from ..youtube import YouTubeError, check_playable, choose_caption, language_name, video_summary
+from ..youtube import YouTubeError, check_playable, choose_caption, language_param, video_summary
 from . import ytdlp
 
 log = logging.getLogger(__name__)
 
-DownloadReporter = Callable[[str, float], None]  # (顯示文字, 這一步的進度 0~1)
+DownloadReporter = Callable[[Message, float], None]  # (顯示文字（訊息）, 這一步的進度 0~1)
 
 
 @dataclass
@@ -35,7 +36,7 @@ class Prepared:
     download_seconds: float | None = None
     # 這次連 YouTube 花的全部秒數（取得資訊、字幕、音訊）；worker 從處理秒數扣掉，字幕路線的速率才不會被高估
     network_seconds: float = 0.0
-    warnings: list[str] = field(default_factory=list)
+    warnings: list[Message] = field(default_factory=list)  # 可延後翻譯的訊息
 
 
 def existing_audio(job: dict[str, Any]) -> Path | None:
@@ -66,25 +67,33 @@ def needs_download(job: dict[str, Any]) -> bool:
 # 沿用快取的資訊下載失敗時，這些錯誤可能只是資訊過期（格式網址失效），重新解析一次再試
 _STALE_INFO_CODES = frozenset({"expired", "forbidden", "no_format", "unknown"})
 
-_REASON_LABELS = {
-    "rate_limited": "HTTP 429，請求次數過多", "timeout": "逾時", "network": "連線失敗",
-    "bot_check": "YouTube 要求驗證", "forbidden": "HTTP 403", "expired": "下載網址失效",
-}
+# 有簡短說明的錯誤代碼（i18n 的 youtube.reason.<代碼>）
+_REASON_CODES = frozenset({"rate_limited", "timeout", "network", "bot_check", "forbidden", "expired"})
 
 
-def failure_reason(e: YouTubeError) -> str:
-    """警告裡的簡短原因，例如「HTTP 429」。"""
+def failure_reason(e: YouTubeError) -> Message | str:
+    """警告裡的簡短原因，例如「HTTP 429」（認得的原因是可延後翻譯的訊息，未知錯誤是 yt-dlp 原文）。"""
     m = re.search(r"HTTP Error (\d{3})", e.detail or "")
     if m and e.code != "rate_limited":
         return f"HTTP {m.group(1)}"
-    return _REASON_LABELS.get(e.code) or e.detail or e.code
+    if e.code in _REASON_CODES:
+        return msg(f"youtube.reason.{e.code}")
+    if e.code == "unknown" and is_message(e.msg):
+        # unknown_error 的原因：yt-dlp 原文（字串）或可延後翻譯的訊息；e.detail 是 zh-TW 文字，不能直接用
+        shown = (e.msg.get("params") or {}).get("detail")  # type: ignore[union-attr]
+        if shown:
+            return shown
+    if e.code != "unknown" and e.msg:
+        # 其他認得的錯誤（私人影片、會員限定等）：用依語言顯示的說明，不要露出代碼
+        return e.msg
+    return e.detail or e.code
 
 
 def _monotonic(report: DownloadReporter) -> DownloadReporter:
     """進度只往前走（字幕與音訊分開下載，各自的進度從 0 開始）。"""
     best = [0.0]
 
-    def wrapped(label: str, p: float) -> None:
+    def wrapped(label: Message, p: float) -> None:
         best[0] = max(best[0], p)
         report(label, best[0])
 
@@ -138,7 +147,7 @@ def prepare(job: dict[str, Any], report: DownloadReporter, check_cancel: Callabl
 
     report = _monotonic(report)
     t_start = time.monotonic()
-    report("取得影片資訊中", 0.0)
+    report(msg("stage.fetching_info"), 0.0)
     info = _Info(job["video_id"], check_cancel)
     info_seconds = time.monotonic() - t_start
     summary = video_summary(info.data)
@@ -159,35 +168,34 @@ def prepare(job: dict[str, Any], report: DownloadReporter, check_cancel: Callabl
     cap = ytdlp.find_captions(jd, lang) if lang else None
     need_audio = audio is None
     need_caps = lang is not None and cap is None
-    warnings: list[str] = []
+    warnings: list[Message] = []
 
     # 1. 字幕（先下載，失敗只記警告；要下載音訊時字幕只占進度條前面一小段）
     if need_caps:
         assert lang is not None
         lo, hi = (0.02, 0.05) if need_audio else (0.05, 1.0)
-        report("下載字幕中", lo)
+        report(msg("stage.downloading_captions"), lo)
         try:
             info.download(jd, audio=False, caption_lang=lang,
-                          on_progress=lambda p: report("下載字幕中", lo + (hi - lo) * p),
+                          on_progress=lambda p: report(msg("stage.downloading_captions"), lo + (hi - lo) * p),
                           check_cancel=check_cancel, max_bytes=max_bytes, duration=summary["duration"])
             cap = ytdlp.find_captions(jd, lang)
             if cap is None:
-                warnings.append(f"無法下載 YouTube 人工字幕（{language_name(lang)}），已改用模型轉錄。")
+                warnings.append(msg("youtube.captions.missing", language=language_param(lang)))
         except YouTubeError as e:
             log.warning("任務 %s 字幕下載失敗（%s）：%s", job_id, e.code, e.detail)
             cap = None
-            warnings.append(f"YouTube 人工字幕（{language_name(lang)}）下載失敗（{failure_reason(e)}），"
-                            "已改用模型轉錄。")
+            warnings.append(msg("youtube.captions.failed", language=language_param(lang), reason=failure_reason(e)))
         if cap is None:
             lang = None
 
     # 2. 音訊
     download_seconds: float | None = None
     if need_audio:
-        report("下載音訊中", 0.05)
+        report(msg("stage.downloading_audio"), 0.05)
         t_audio = time.monotonic()
         info.download(jd, audio=True, caption_lang=None,
-                      on_progress=lambda p: report("下載音訊中", 0.05 + 0.95 * p),
+                      on_progress=lambda p: report(msg("stage.downloading_audio"), 0.05 + 0.95 * p),
                       check_cancel=check_cancel, max_bytes=max_bytes, duration=summary["duration"])
         # 下載速率用「取得資訊＋下載音訊」的時間（不含字幕），與 estimate 的固定開銷定義一致
         download_seconds = info_seconds + (time.monotonic() - t_audio)

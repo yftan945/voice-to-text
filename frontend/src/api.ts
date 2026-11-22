@@ -1,3 +1,4 @@
+import { getLang, tr } from "./i18n";
 import type {
   BatchCancelResult,
   Dictionary,
@@ -25,13 +26,21 @@ function detailMessage(status: number, body: unknown): string {
   if (body && typeof body === "object" && "detail" in body) {
     const d = (body as { detail: unknown }).detail;
     if (typeof d === "string") return d;
-    if (Array.isArray(d)) return "參數錯誤";
+    if (Array.isArray(d)) return tr("api.badParams");
   }
-  return `伺服器錯誤（${status}）`;
+  return tr("api.serverError", { status });
+}
+
+/** 後端依這個語言回傳訊息（錯誤、警告、處理步驟）；SSE 與下載連結用網址參數 ?lang= */
+const langHeaders = (): Record<string, string> => ({ "Accept-Language": getLang() });
+
+/** 網址加上 lang 參數（EventSource、下載連結不能自訂 header）。 */
+export function withLang(url: string): string {
+  return `${url}${url.includes("?") ? "&" : "?"}lang=${encodeURIComponent(getLang())}`;
 }
 
 async function request<T>(method: string, url: string, body?: unknown): Promise<T> {
-  const init: RequestInit = { method, headers: {} };
+  const init: RequestInit = { method, headers: langHeaders() };
   if (body instanceof FormData) {
     init.body = body;
   } else if (body !== undefined) {
@@ -42,7 +51,7 @@ async function request<T>(method: string, url: string, body?: unknown): Promise<
   try {
     res = await fetch(url, init);
   } catch {
-    throw new ApiError(0, "連不上伺服器，請確認網路");
+    throw new ApiError(0, tr("api.offline"));
   }
   const text = await res.text();
   let data: unknown = null;
@@ -133,17 +142,19 @@ export const api = {
   deleteVoiceprint: (id: number) => request<unknown>("DELETE", `/api/voiceprints/${id}`),
 };
 
-let modelsCache: Promise<ModelList> | null = null;
+let modelsCache: { lang: string; promise: Promise<ModelList> } | null = null;
 
-/** 模型清單只請求一次（失敗時下次再試）。 */
+/** 模型清單每個語言只請求一次（名稱與說明依語言；失敗時下次再試）。 */
 export function loadModels(): Promise<ModelList> {
-  if (!modelsCache) {
-    modelsCache = api.models().catch((e) => {
-      modelsCache = null;
+  const lang = getLang();
+  if (!modelsCache || modelsCache.lang !== lang) {
+    const promise = api.models().catch((e) => {
+      if (modelsCache?.promise === promise) modelsCache = null;
       throw e;
     });
+    modelsCache = { lang, promise };
   }
-  return modelsCache;
+  return modelsCache.promise;
 }
 
 /** 批次代號：同一批上傳的任務共用。http（非安全連線）下沒有 crypto.randomUUID，改用 getRandomValues。 */
@@ -170,6 +181,7 @@ export function uploadJob(
     fd.append("dictionary_ids", o.dictionaryIds.join(","));
     if (batchId) fd.append("batch_id", batchId);
     xhr.open("POST", "/api/jobs");
+    for (const [k, v] of Object.entries(langHeaders())) xhr.setRequestHeader(k, v);
     xhr.upload.onprogress = (e) => {
       if (e.lengthComputable) onProgress(e.loaded / e.total, e.loaded, e.total);
     };
@@ -183,13 +195,13 @@ export function uploadJob(
       if (xhr.status >= 200 && xhr.status < 300) resolve(data as Job);
       else reject(new ApiError(xhr.status, detailMessage(xhr.status, data)));
     };
-    xhr.onerror = () => reject(new ApiError(0, "上傳失敗，請確認網路"));
-    xhr.onabort = () => reject(new ApiError(0, "已取消上傳"));
+    xhr.onerror = () => reject(new ApiError(0, tr("api.uploadFailed")));
+    xhr.onabort = () => reject(new ApiError(0, tr("api.uploadAborted")));
     xhr.send(fd);
   });
   return { promise, abort: () => xhr.abort() };
 }
 
 export const exportUrl = (id: string, fmt: string, timestamps = true) =>
-  `/api/jobs/${id}/export/${fmt}?timestamps=${timestamps ? "true" : "false"}`;
+  withLang(`/api/jobs/${id}/export/${fmt}?timestamps=${timestamps ? "true" : "false"}`);
 export const audioUrl = (id: string) => `/api/jobs/${id}/audio`;

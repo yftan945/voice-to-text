@@ -1,3 +1,4 @@
+import { tr } from "../i18n";
 import type { Segment, Transcript } from "../types";
 
 /** 講者色：5 個色相（tokens.css 的 --sp0..4），第 6–10 位用同色相的淡色版（.sp5..9），再多就循環。 */
@@ -24,7 +25,7 @@ const AUTO_LABEL = /^SPEAKER_(\d+)$/;
  */
 export function defaultSpeakerName(label: string): string {
   const m = AUTO_LABEL.exec(label);
-  return m ? `講者 ${Number(m[1]) + 1}` : label;
+  return m ? tr("speaker.default", { n: Number(m[1]) + 1 }) : label;
 }
 
 /** 講者顯示名稱：有取名用名字，沒有就是「講者 N」。name 是舊資料（首頁摘要）存的代號時也一樣換掉。 */
@@ -34,7 +35,7 @@ export function displaySpeaker(label: string, name: string | null | undefined): 
 }
 
 export function speakerName(t: Transcript, label: string | null): string {
-  if (!label) return "未指定講者";
+  if (!label) return tr("speaker.none");
   return displaySpeaker(label, t.speakers[label]?.name);
 }
 

@@ -2,6 +2,7 @@ import { useLayoutEffect, useRef } from "react";
 import Icon from "../../components/Icon";
 import Tick from "../../components/Tick";
 import { tc } from "../../format";
+import { useT } from "../../i18n";
 import { usePlayer, usePlayerStore } from "../../lib/player";
 import { colorClass, segmentIndexAt, speakerName } from "../../lib/speakers";
 import type { Transcript } from "../../types";
@@ -20,9 +21,10 @@ function NowTime({ duration }: { duration: number }) {
 
 /** 正在播放的那一句（只在換段落時重畫）。 */
 function NowLine({ t, labels }: { t: Transcript; labels: string[] }) {
+  const tx = useT();
   const state = usePlayer((s) => (!s.playing && s.time < 0.05 ? -2 : segmentIndexAt(t.segments, s.time)));
-  if (state === -2) return <div className="pnow"><span className="t">按播放鍵從頭開始，或點泡泡、色帶跳到想聽的地方</span></div>;
-  if (state < 0) return <div className="pnow"><span className="t">（無人聲）</span></div>;
+  if (state === -2) return <div className="pnow"><span className="t">{tx("player.start")}</span></div>;
+  if (state < 0) return <div className="pnow"><span className="t">{tx("player.silence")}</span></div>;
   const seg = t.segments[state];
   return (
     <div className="pnow">
@@ -48,6 +50,7 @@ export default function PlayerBar({
   follow: boolean;
   onFollow: (v: boolean) => void;
 }) {
+  const tx = useT();
   const store = usePlayerStore();
   const playing = usePlayer((s) => s.playing);
   const rate = usePlayer((s) => s.rate);
@@ -85,37 +88,37 @@ export default function PlayerBar({
   };
 
   return (
-    <div className="pbar" id="player" tabIndex={-1} role="region" aria-label="播放器" ref={barRef}>
+    <div className="pbar" id="player" tabIndex={-1} role="region" aria-label={tx("player.label")} ref={barRef}>
       <div className="pbar-in">
         <button
           type="button"
           className="pbtn"
           disabled={!usable}
           onClick={() => store.toggle()}
-          aria-label={playing ? "暫停" : "播放"}
+          aria-label={playing ? tx("player.pause") : tx("player.play")}
         >
           <Icon name={playing ? "pause" : "play"} />
         </button>
         <NowTime duration={duration} />
-        {canSeek ? <NowLine t={t} labels={labels} /> : <div className="pnow"><span className="t">音檔已刪除，無法播放。</span></div>}
+        {canSeek ? <NowLine t={t} labels={labels} /> : <div className="pnow"><span className="t">{tx("player.noAudio")}</span></div>}
         <div className="pctl">
           <button
             type="button"
             className="tbtn speed num"
             disabled={!usable}
-            aria-label={`播放速度 ${rate} 倍，按一下切換`}
+            aria-label={tx("player.rate", { rate })}
             onClick={() => store.setRate(RATES[(RATES.indexOf(rate) + 1) % RATES.length])}
           >
             {rate}×
           </button>
-          <button type="button" className="icon-btn" disabled={!usable} onClick={prev} aria-label="上一句">
+          <button type="button" className="icon-btn" disabled={!usable} onClick={prev} aria-label={tx("player.prev")}>
             <Icon name="prev" />
           </button>
-          <button type="button" className="icon-btn" disabled={!usable} onClick={next} aria-label="下一句">
+          <button type="button" className="icon-btn" disabled={!usable} onClick={next} aria-label={tx("player.next")}>
             <Icon name="next" />
           </button>
           <Tick on={follow} onChange={onFollow} disabled={!canSeek}>
-            跟隨播放
+            {tx("job.follow")}
           </Tick>
         </div>
       </div>

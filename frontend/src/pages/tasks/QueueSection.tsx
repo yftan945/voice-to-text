@@ -8,6 +8,7 @@ import StepBar from "../../components/StepBar";
 import { useToast } from "../../components/Toast";
 import { approxDuration, clockAfter, duration, etaText, languageName, timeOfDay } from "../../format";
 import { modelLabel, useFinePointer } from "../../hooks";
+import { useT, type TFn } from "../../i18n";
 import { isActive } from "../../jobs";
 import type { Job, ModelList, MoveTarget } from "../../types";
 
@@ -22,6 +23,8 @@ function byQueue(a: Job, b: Job): number {
 interface Batch {
   id: string;
   label: string;
+  /** 這批最早建立的時間（排序用） */
+  createdAt: number;
   total: number;
   done: number;
   failed: number;
@@ -32,7 +35,7 @@ interface Batch {
 }
 
 /** 有任務還在排隊或處理中、而且不只一個檔案的批次。 */
-function activeBatches(jobs: Job[]): Batch[] {
+function activeBatches(jobs: Job[], t: TFn): Batch[] {
   const groups = new Map<string, Job[]>();
   for (const j of jobs) {
     if (!j.batch_id) continue;
@@ -45,9 +48,11 @@ function activeBatches(jobs: Job[]): Batch[] {
     const active = list.filter(isActive);
     if (active.length === 0 || list.length < 2) continue;
     const finishes = active.map((j) => j.eta_finish_seconds);
+    const createdAt = Math.min(...list.map((j) => j.created_at));
     out.push({
       id,
-      label: `${timeOfDay(Math.min(...list.map((j) => j.created_at)))} 上傳`,
+      label: t("queue.batchUploaded", { time: timeOfDay(createdAt) }),
+      createdAt,
       total: list.length,
       done: list.filter((j) => j.status === "done").length,
       failed: list.filter((j) => j.status === "failed").length,
@@ -56,24 +61,29 @@ function activeBatches(jobs: Job[]): Batch[] {
       finish: finishes.some((f) => f == null) ? null : Math.max(...(finishes as number[])),
     });
   }
-  return out.sort((a, b) => a.label.localeCompare(b.label));
+  // 依上傳時間（英文的 12 小時制不能用字串排序）
+  return out.sort((a, b) => a.createdAt - b.createdAt);
 }
 
-const textSource = (job: Job, models: ModelList | null) =>
+const textSource = (t: TFn, job: Job, models: ModelList | null) =>
   // 有人工字幕而且要用字幕的 YouTube 任務不跑辨識模型
   job.source === "youtube" && job.use_captions && job.caption_lang
-    ? `YouTube 人工字幕（${languageName(job.caption_lang)}）`
+    ? t("queue.captions", { lang: languageName(job.caption_lang) })
     : modelLabel(models, job.model);
 
-const speakerText = (job: Job) =>
-  !job.diarize ? "不分講者" : job.num_speakers ? `${job.num_speakers} 位講者` : "自動判斷講者人數";
+const speakerText = (t: TFn, job: Job) =>
+  !job.diarize
+    ? t("queue.noDiarize")
+    : job.num_speakers
+      ? t("queue.nSpeakers", { n: job.num_speakers })
+      : t("queue.autoSpeakers");
 
 /** 字典名稱；字典清單還沒載入、或名稱都對不上（例如剛新增、清單還沒重新讀）時只寫本數。 */
-function dictText(job: Job, dictNames: Map<number, string> | null): string {
+function dictText(t: TFn, job: Job, dictNames: Map<number, string> | null): string {
   const ids = job.dictionary_ids;
-  if (!ids.length) return "不用字典";
+  if (!ids.length) return t("home.noDicts");
   const names = dictNames ? ids.map((id) => dictNames.get(id)).filter(Boolean) : [];
-  return names.length ? `字典：${names.join("、")}` : `字典 ${ids.length} 本`;
+  return names.length ? t("home.dicts", { names: names.join(t("common.listSep")) }) : t("queue.dictCount", { n: ids.length });
 }
 
 /**
@@ -98,8 +108,9 @@ export default function QueueSection({
   /** 把 API 回傳的最新任務併回列表 */
   onUpdate: (jobs: Job[]) => void;
 }) {
+  const t = useT();
   const active = useMemo(() => jobs.filter(isActive).sort(byQueue), [jobs]);
-  const batches = useMemo(() => activeBatches(jobs), [jobs]);
+  const batches = useMemo(() => activeBatches(jobs, t), [jobs, t]);
   const batchLabels = useMemo(() => new Map(batches.map((b) => [b.id, b.label])), [batches]);
   const [error, setError] = useState("");
   const [dragId, setDragId] = useState<string | null>(null);
@@ -149,7 +160,7 @@ export default function QueueSection({
       onUpdate(r.jobs);
       setFlash(job.id);
       const moved = r.jobs.find((j) => j.id === job.id);
-      if (moved?.queue_rank) toast(`「${job.filename}」現在是第 ${moved.queue_rank} 位`);
+      if (moved?.queue_rank) toast(t("queue.moved", { name: job.filename, rank: moved.queue_rank }));
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -193,53 +204,53 @@ export default function QueueSection({
     <section className="sec" aria-labelledby="queue-title">
       <div className="sec-head">
         <h2 id="queue-title" ref={headingRef} tabIndex={-1}>
-          處理中與排隊中
+          {t("queue.title")}
         </h2>
         {/* 都是 0 時下面的空狀態已經說了，不重複顯示「處理中 0　排隊中 0」 */}
         {active.length > 0 && (
-          <span className="sub num">
-            處理中 {runningCount}　排隊中 {queuedCount}
-          </span>
+          <span className="sub num">{t("queue.counts", { running: runningCount, queued: queuedCount })}</span>
         )}
         {allFinish != null && (
           <span className="sub num">
-            {allFinish < 60 ? "全部即將完成" : `全部約 ${clockAfter(allFinish)} 完成（${approxDuration(allFinish)}後）`}
+            {allFinish < 60
+              ? t("queue.allSoon")
+              : t("queue.allAt", { clock: clockAfter(allFinish), d: approxDuration(allFinish) })}
           </span>
         )}
       </div>
 
       {active.length === 0 ? (
         <p className="empty">
-          目前沒有處理中或排隊中的錄音。<Link to="/" className="nowrap">
-            前往錄音頁上傳
+          {t("queue.empty")}
+          <Link to="/" className="nowrap">
+            {t("queue.emptyLink")}
           </Link>
         </p>
       ) : (
         <>
           <p className="help queue-basis">
-            時間是{fromHistory ? "依這台機器過去的實際處理速度" : "依預設速度"}估算的大概值
-            {fromHistory ? "" : "，完成幾個任務後會越來越準"}。
-            {fine && queuedCount > 1 && "可以拖曳排隊中的錄音調整順序。"}
+            {fromHistory ? t("queue.basisHistory") : t("queue.basisDefault")}
+            {fine && queuedCount > 1 && t("queue.dragHint")}
           </p>
 
           {batches.map((b) => (
             <div key={b.id} className="batch">
-              <span className="batch-name">批次　{b.label}</span>
+              <span className="batch-name">{t("queue.batch", { label: b.label })}</span>
               <span className="num">
-                已完成 {b.done} 個，共 {b.total} 個
-                {b.failed > 0 && `，失敗 ${b.failed} 個`}
-                {b.canceled > 0 && `，已取消 ${b.canceled} 個`}
+                {t("queue.batchDone", { done: b.done, total: b.total })}
+                {b.failed > 0 && t("queue.batchFailed", { n: b.failed })}
+                {b.canceled > 0 && t("queue.batchCanceled", { n: b.canceled })}
               </span>
               <span className="muted num">
                 {b.finish == null
-                  ? "無法估算完成時間"
+                  ? t("queue.batchNoEta")
                   : b.finish < 60
-                    ? "即將全部完成"
-                    : `約 ${clockAfter(b.finish)} 全部完成`}
+                    ? t("queue.batchSoon")
+                    : t("queue.batchAt", { clock: clockAfter(b.finish) })}
               </span>
               <span className="grow" />
               <button type="button" className="tbtn danger" onClick={() => setConfirmBatch(b)}>
-                整批取消
+                {t("queue.cancelBatch")}
               </button>
             </div>
           ))}
@@ -275,18 +286,20 @@ export default function QueueSection({
                 >
                   <div className={`cue ${queued ? "wait" : "run"}`}>
                     {draggable && (
-                      <span className="grip" aria-hidden="true" title="拖曳調整順序">
+                      <span className="grip" aria-hidden="true" title={t("queue.drag")}>
                         <Icon name="grip" size={16} />
                       </span>
                     )}
                     {queued ? (
                       <span>
-                        第 <span className="num">{rank ?? "—"}</span> 位
+                        {t("queue.rankBefore")}
+                        <span className="num">{rank ?? "—"}</span>
+                        {t("queue.rankAfter")}
                       </span>
                     ) : job.cancel_requested ? (
-                      "取消中"
+                      t("queue.canceling")
                     ) : (
-                      "處理中"
+                      t("queue.processing")
                     )}
                   </div>
                   <div className="body">
@@ -305,13 +318,15 @@ export default function QueueSection({
                           </b>
                         </span>
                       )}
-                      <span>長度 {duration(job.duration)}</span>
-                      <span>{textSource(job, models)}</span>
-                      <span>{speakerText(job)}</span>
-                      <span className="break">{dictText(job, dictNames)}</span>
-                      {job.estimate_seconds != null && <span>處理時間{approxDuration(job.estimate_seconds)}</span>}
+                      <span>{t("queue.length", { d: duration(job.duration) })}</span>
+                      <span>{textSource(t, job, models)}</span>
+                      <span>{speakerText(t, job)}</span>
+                      <span className="break">{dictText(t, job, dictNames)}</span>
+                      {job.estimate_seconds != null && (
+                        <span>{t("queue.estimate", { d: approxDuration(job.estimate_seconds) })}</span>
+                      )}
                       <span>{etaText(job)}</span>
-                      {batch && <span>批次 {batch}</span>}
+                      {batch && <span>{t("queue.batchTag", { label: batch })}</span>}
                     </div>
                   </div>
                   <div className="acts">
@@ -323,9 +338,9 @@ export default function QueueSection({
                           data-action="front"
                           disabled={rank === 1}
                           onClick={() => move(job, { to: "front" }, "front")}
-                          aria-label={`移到最前：${job.filename}`}
+                          aria-label={t("queue.actionLabel", { action: t("queue.toFront"), name: job.filename })}
                         >
-                          移到最前
+                          {t("queue.toFront")}
                         </button>
                         <button
                           type="button"
@@ -333,9 +348,9 @@ export default function QueueSection({
                           data-action="up"
                           disabled={rank === 1}
                           onClick={() => move(job, { to: "up" }, "up")}
-                          aria-label={`上移：${job.filename}`}
+                          aria-label={t("queue.actionLabel", { action: t("queue.up"), name: job.filename })}
                         >
-                          上移
+                          {t("queue.up")}
                         </button>
                         <button
                           type="button"
@@ -343,18 +358,18 @@ export default function QueueSection({
                           data-action="down"
                           disabled={rank === queuedCount}
                           onClick={() => move(job, { to: "down" }, "down")}
-                          aria-label={`下移：${job.filename}`}
+                          aria-label={t("queue.actionLabel", { action: t("queue.down"), name: job.filename })}
                         >
-                          下移
+                          {t("queue.down")}
                         </button>
                         <button
                           type="button"
                           className="tbtn"
                           data-action="options"
                           onClick={() => setEditing(job)}
-                          aria-label={`修改設定：${job.filename}`}
+                          aria-label={t("queue.actionLabel", { action: t("options.title"), name: job.filename })}
                         >
-                          設定
+                          {t("queue.settings")}
                         </button>
                       </>
                     )}
@@ -364,9 +379,9 @@ export default function QueueSection({
                       data-action="cancel"
                       onClick={() => (queued ? cancel(job) : setConfirmRunning(job))}
                       disabled={job.cancel_requested}
-                      aria-label={`取消：${job.filename}`}
+                      aria-label={t("queue.actionLabel", { action: t("queue.cancel"), name: job.filename })}
                     >
-                      {job.cancel_requested ? "取消中…" : "取消"}
+                      {job.cancel_requested ? t("queue.cancelingBtn") : t("queue.cancel")}
                     </button>
                   </div>
                 </li>
@@ -378,20 +393,18 @@ export default function QueueSection({
 
       {confirmBatch && (
         <ConfirmModal
-          title="整批取消"
+          title={t("queue.cancelBatch")}
           message={
             <>
+              <p>{t("queue.cancelBatchMsg", { label: confirmBatch.label, n: confirmBatch.active.length })}</p>
               <p>
-                取消「{confirmBatch.label}」這批還沒完成的 {confirmBatch.active.length} 個任務？
-              </p>
-              <p>
-                排隊中的會直接取消；處理中的會在目前步驟結束後停止。
-                {confirmBatch.done > 0 && `已完成的 ${confirmBatch.done} 個不受影響。`}
+                {t("queue.cancelBatchNote")}
+                {confirmBatch.done > 0 && t("queue.cancelBatchDone", { n: confirmBatch.done })}
               </p>
             </>
           }
-          confirmLabel="整批取消"
-          cancelLabel="返回"
+          confirmLabel={t("queue.cancelBatch")}
+          cancelLabel={t("common.back")}
           danger
           onClose={() => setConfirmBatch(null)}
           onConfirm={async () => {
@@ -429,10 +442,10 @@ export default function QueueSection({
       )}
       {confirmRunning && (
         <ConfirmModal
-          title="取消處理中的錄音"
-          message={`「${confirmRunning.filename}」正在${confirmRunning.stage.replace(/中$/, "")}，取消後這次的進度會丟棄，會在目前步驟結束後停止。`}
-          confirmLabel="取消處理"
-          cancelLabel="繼續處理"
+          title={t("queue.cancelRunningTitle")}
+          message={t("queue.cancelRunningMsg", { name: confirmRunning.filename, stage: confirmRunning.stage })}
+          confirmLabel={t("queue.cancelRunningConfirm")}
+          cancelLabel={t("queue.cancelRunningKeep")}
           danger
           onClose={() => setConfirmRunning(null)}
           onConfirm={async () => {

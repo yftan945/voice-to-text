@@ -7,7 +7,10 @@ export interface Job {
   started_at: number | null;
   finished_at: number | null;
   status: JobStatus;
+  /** 處理步驟的顯示文字（後端依語言 render） */
   stage: string;
+  /** 處理步驟的代碼（例如 stage.transcribe），判斷目前在哪一步用；舊資料為 null */
+  stage_code?: string | null;
   progress: number;
   error: string | null;
   warnings: string[];

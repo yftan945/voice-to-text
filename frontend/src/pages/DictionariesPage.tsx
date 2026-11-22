@@ -1,24 +1,23 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api } from "../api";
 import { ConfirmModal } from "../components/Modal";
 import { dateTime } from "../format";
 import { useUnsavedBlocker } from "../hooks";
+import { useLang, useT } from "../i18n";
 import type { Dictionary } from "../types";
 
-const EXAMPLE = `# 每行一個詞（只當辨識提示）
-Kubernetes
-# 正字 = 誤聽1, 誤聽2（提示＋辨識後自動替換）
-人工智慧 = 人工只能, 人工智能
-OpenAI = open AI, 偶噴AI`;
-
 export default function DictionariesPage() {
+  const t = useT();
+  const lang = useLang();
+  const example = t("dict.example");
   const [dicts, setDicts] = useState<Dictionary[] | null>(null);
   const [selected, setSelected] = useState<number | "new" | null>(null);
   const [name, setName] = useState("");
   const [content, setContent] = useState("");
   // 開啟時的內容，用來判斷有沒有未儲存的修改
   const [saved, setSaved] = useState({ name: "", content: "" });
-  const [msg, setMsg] = useState("");
+  // 儲存成功的提示（存成旗標，顯示時才翻譯，換語言時跟著換）
+  const [savedMsg, setSavedMsg] = useState(false);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [pendingOpen, setPendingOpen] = useState<Dictionary | "new" | null>(null);
@@ -28,12 +27,32 @@ export default function DictionariesPage() {
   // 關閉分頁、重新整理、站內換頁前都先確認
   const blocker = useUnsavedBlocker(dirty);
 
+  // 本頁新增、修改、刪除完成的次數：讀取途中有過這些操作，讀回來的清單可能是舊的（會蓋掉剛儲存的結果），丟掉重讀
+  const mutations = useRef(0);
+  // 換語言時重新讀（讀取錯誤訊息跟著換）；換頁或再換語言後晚到的舊回應不套用
   useEffect(() => {
-    api.dictionaries().then(setDicts, (e) => setError(e.message));
-  }, []);
+    let alive = true;
+    const load = () => {
+      const at = mutations.current;
+      api.dictionaries().then(
+        (l) => {
+          if (!alive) return;
+          if (at !== mutations.current) return load();
+          setDicts(l);
+        },
+        (e) => {
+          if (alive) setError(e.message);
+        },
+      );
+    };
+    load();
+    return () => {
+      alive = false;
+    };
+  }, [lang]);
 
   const doOpen = (d: Dictionary | "new") => {
-    setMsg("");
+    setSavedMsg(false);
     setError("");
     if (d === "new") {
       setSelected("new");
@@ -58,16 +77,18 @@ export default function DictionariesPage() {
     if (busy) return;
     setBusy(true);
     setError("");
-    setMsg("");
+    setSavedMsg(false);
     try {
       let d: Dictionary | null = null;
       if (selected === "new") {
         d = await api.createDictionary(name.trim(), content);
+        mutations.current += 1;
         const created = d;
         setDicts((prev) => [...(prev ?? []), created].sort((a, b) => a.name.localeCompare(b.name)));
         setSelected(d.id);
       } else if (selected !== null) {
         d = await api.updateDictionary(selected, { name: name.trim(), content });
+        mutations.current += 1;
         const updated = d;
         setDicts((prev) => prev?.map((x) => (x.id === updated.id ? updated : x)) ?? prev);
       }
@@ -76,7 +97,7 @@ export default function DictionariesPage() {
         setContent(d.content);
         setSaved({ name: d.name, content: d.content });
       }
-      setMsg("已儲存");
+      setSavedMsg(true);
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -87,6 +108,7 @@ export default function DictionariesPage() {
   const remove = async () => {
     if (typeof selected !== "number") return;
     await api.deleteDictionary(selected); // 失敗時錯誤顯示在確認對話框裡
+    mutations.current += 1;
     setDicts((prev) => prev?.filter((x) => x.id !== selected) ?? prev);
     setSelected(null);
     setSaved({ name: "", content: "" });
@@ -97,24 +119,22 @@ export default function DictionariesPage() {
 
   return (
     <main className="page lib">
-      <h1>字典</h1>
-      <p className="lead">
-        字典有兩個作用：辨識前當作提示詞，讓模型更容易聽對專有名詞；辨識後把常見的誤聽自動換成正字。新增錄音時可以選一份或多份。
-      </p>
+      <h1>{t("nav.dictionaries")}</h1>
+      <p className="lead">{t("dict.lead")}</p>
       {error && (
         <p className="note error-note" role="alert">
           {error}
         </p>
       )}
       <div className="split">
-        <nav className="split-list" aria-label="字典清單">
+        <nav className="split-list" aria-label={t("dict.listLabel")}>
           <button type="button" className="btn primary" onClick={() => open("new")}>
-            新增字典
+            {t("dict.new")}
           </button>
           {dicts === null ? (
-            !error && <p className="empty">載入中…</p>
+            !error && <p className="empty">{t("common.loading")}</p>
           ) : dicts.length === 0 ? (
-            <p className="empty">還沒有字典。</p>
+            <p className="empty">{t("dict.empty")}</p>
           ) : (
             <ul className="list">
               {dicts.map((d) => (
@@ -127,7 +147,9 @@ export default function DictionariesPage() {
                   >
                     <span className="li-name">{d.name}</span>
                     <small className="num">
-                      {d.term_count} 詞，{d.rule_count} 條替換，{dateTime(d.updated_at)}
+                      {t("opts.dictCounts", { terms: d.term_count, rules: d.rule_count })}
+                      {t("common.sep")}
+                      {dateTime(d.updated_at)}
                     </small>
                   </button>
                 </li>
@@ -135,27 +157,27 @@ export default function DictionariesPage() {
             </ul>
           )}
         </nav>
-        <section className="split-main" aria-label="字典內容">
+        <section className="split-main" aria-label={t("dict.contentLabel")}>
           {selected === null ? (
             <div className="syntax">
-              <p className="muted">選擇一份字典編輯，或新增一份。</p>
-              <h2>語法</h2>
-              <pre className="example">{EXAMPLE}</pre>
+              <p className="muted">{t("dict.pick")}</p>
+              <h2>{t("dict.syntax")}</h2>
+              <pre className="example">{example}</pre>
             </div>
           ) : (
             <div className="editor-form">
               <label className="lab" htmlFor="dict-name">
-                名稱
+                {t("common.name")}
               </label>
               <input
                 id="dict-name"
                 className="field"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                placeholder="例如：公司產品名稱"
+                placeholder={t("dict.namePlaceholder")}
               />
               <label className="lab" htmlFor="dict-content">
-                內容
+                {t("dict.content")}
               </label>
               <textarea
                 id="dict-content"
@@ -163,23 +185,27 @@ export default function DictionariesPage() {
                 value={content}
                 onChange={(e) => setContent(e.target.value)}
                 rows={16}
-                placeholder={EXAMPLE}
+                placeholder={example}
                 spellCheck={false}
               />
               <p className="help">
-                每行一個詞；<code>正字 = 誤聽1, 誤聽2</code> 表示替換規則；<code>#</code> 開頭為註解。
+                {t("dict.help1")}
+                <code>{t("dict.helpRule")}</code>
+                {t("dict.help2")}
+                <code>#</code>
+                {t("dict.help3")}
               </p>
               <div className="form-acts">
                 {typeof selected === "number" && (
                   <button type="button" className="btn danger" disabled={busy} onClick={() => setConfirmDelete(true)}>
-                    刪除
+                    {t("common.delete")}
                   </button>
                 )}
                 <span className={`status${dirty ? " dirty" : ""}`} role="status">
-                  {dirty ? "有未儲存的修改" : msg}
+                  {dirty ? t("dict.unsaved") : savedMsg ? t("common.saved") : ""}
                 </span>
                 <button type="button" className="btn primary" disabled={busy || !name.trim()} onClick={save}>
-                  {busy ? "儲存中…" : "儲存"}
+                  {busy ? t("common.saving") : t("common.save")}
                 </button>
               </div>
             </div>
@@ -189,10 +215,10 @@ export default function DictionariesPage() {
 
       {pendingOpen && (
         <ConfirmModal
-          title="放棄修改？"
-          message="這份字典還沒儲存，要放棄修改嗎？"
-          confirmLabel="放棄修改"
-          cancelLabel="繼續編輯"
+          title={t("common.discardTitle")}
+          message={t("dict.discardMsg")}
+          confirmLabel={t("common.discard")}
+          cancelLabel={t("common.keepEditing")}
           danger
           onClose={() => setPendingOpen(null)}
           onConfirm={() => {
@@ -204,10 +230,10 @@ export default function DictionariesPage() {
       )}
       {blocker.state === "blocked" && (
         <ConfirmModal
-          title="放棄修改？"
-          message="這份字典還沒儲存，離開這個頁面會放棄修改。"
-          confirmLabel="離開"
-          cancelLabel="繼續編輯"
+          title={t("common.discardTitle")}
+          message={t("dict.leaveMsg")}
+          confirmLabel={t("common.leave")}
+          cancelLabel={t("common.keepEditing")}
           danger
           onClose={() => blocker.reset()}
           onConfirm={() => blocker.proceed()}
@@ -215,9 +241,9 @@ export default function DictionariesPage() {
       )}
       {confirmDelete && (
         <ConfirmModal
-          title="刪除字典"
-          message={`確定刪除字典「${saved.name || name}」？刪除後無法復原。`}
-          confirmLabel="刪除"
+          title={t("dict.deleteTitle")}
+          message={t("dict.deleteMsg", { name: saved.name || name })}
+          confirmLabel={t("common.delete")}
           danger
           onClose={() => setConfirmDelete(false)}
           onConfirm={remove}

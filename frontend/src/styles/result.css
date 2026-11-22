@@ -89,6 +89,8 @@
   font: inherit; color: inherit; caret-color: var(--cobalt);
 }
 .edit-ta:focus { outline: none; }
+/* 英文介面裡的中文逐字稿：泡泡內容（含編輯框）用 TC 字型（拉丁字型優先會把中文裡的 “ ” … 畫成半形） */
+html:lang(en) .thread.zh .bub { --serif: var(--serif-zh); --sans: var(--sans-zh); }
 .edit-bar { display: flex; align-items: center; gap: 12px; margin-top: 2px; padding-top: 2px; border-top: 1px dashed var(--rule); font: 400 12px/1.4 var(--sans); }
 .edit-hint { flex: 1; color: var(--muted); }
 .edit-hint b { color: var(--ink); font-weight: 600; }
@@ -251,6 +253,13 @@
 .speed-ctl button[aria-checked="true"] { background: var(--ink); color: var(--paper); }
 .panel-follow { margin-top: 6px; }
 .panel-follow small { display: block; margin-top: 1px; }
+/* 名稱不換行（英文「Follow playback」不會被說明文字擠成兩行），說明文字在旁邊換行；
+   320px 等級旁邊太窄，說明文字整段換到下一行（對齊勾選框右邊的文字） */
+.panel-follow .pf-label { white-space: nowrap; }
+@media (max-width: 360px) {
+  .panel-follow { flex-wrap: wrap; row-gap: 0; }
+  .panel-follow small { flex-basis: 100%; padding-left: 24px; }
+}
 .chips { display: flex; flex-wrap: wrap; gap: 8px; }
 .chip {
   min-height: 44px; padding: 0 14px 0 6px; border: 1px solid var(--rule-strong); border-radius: var(--radius);
@@ -276,10 +285,13 @@
   }
   .r-head .back { display: inline-grid; place-items: center; width: 44px; height: 44px; flex: none; color: var(--ink); border-radius: var(--radius); }
   /* 標題撐滿，「⋯」貼齊右邊 */
-  .r-head .titles { flex: 1; }
+  .r-head .titles { flex: 1; min-width: 0; }
   .head-tools { margin-left: auto; }
   .titles h1 { margin: 0; font-size: 17px; line-height: 1.25; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .meta { flex-wrap: nowrap; font-size: 12px; gap: 10px; white-space: nowrap; overflow: hidden; line-height: 1.35; }
+  /* 一行放不下時只截斷文字來源（模型或字幕），其他項目不縮 */
+  .meta > * { flex: none; }
+  .meta > .m-src { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
   .meta .m-date, .meta .m-spk, .meta .m-ch, .meta .m-yt { display: none; }
   .head-tools { gap: 0; }
   .d-only { display: none !important; }

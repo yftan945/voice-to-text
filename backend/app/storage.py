@@ -10,6 +10,7 @@ from typing import Any, Callable, TypeVar
 
 from . import db
 from .config import settings
+from .i18n import DEFAULT_LANG, LocalizedError, render
 from .jobs import queue
 
 DELETE_MODES = ("transcript", "audio", "all")
@@ -17,11 +18,12 @@ DELETE_MODES = ("transcript", "audio", "all")
 log = logging.getLogger(__name__)
 
 # 重新轉錄完成時會用新的原始結果取代逐字稿（含編輯，見 save_original），排隊或執行中的任務不能編輯
-EDIT_BUSY_MESSAGE = "重新轉錄中，完成前不能編輯"
+# zh-TW 文字（舊程式與 log 用）；給使用者看的是 i18n 的 transcript.edit.busy
+EDIT_BUSY_MESSAGE = render("transcript.edit.busy", {}, DEFAULT_LANG)
 
 
-class JobBusy(RuntimeError):
-    pass
+class JobBusy(LocalizedError, RuntimeError):
+    """任務排隊或執行中，不能編輯或刪除；msg 可以直接顯示給使用者。"""
 
 
 # 補算講者摘要失敗過的任務：同一個行程裡不再重試（/api/events 每秒都會列一次，避免 log 被洗版）
@@ -35,7 +37,7 @@ def _ensure_editable(conn: Any, job_id: str) -> None:
     """
     r = conn.execute("SELECT status FROM jobs WHERE id = ?", (job_id,)).fetchone()
     if r is not None and r["status"] in queue.ACTIVE_STATUSES:
-        raise JobBusy(EDIT_BUSY_MESSAGE)
+        raise JobBusy("transcript.edit.busy")
 
 
 def job_dir(job_id: str) -> Path:
@@ -188,7 +190,7 @@ def delete_job(job_id: str, mode: str) -> dict[str, Any] | None:
             exists = conn.execute("SELECT 1 FROM jobs WHERE id = ?", (job_id,)).fetchone()
             if exists is None:
                 raise KeyError(job_id)
-            raise JobBusy("任務排隊或執行中，請先取消再刪除")
+            raise JobBusy("job.delete.busy")
         if mode in ("transcript", "all"):
             conn.execute("DELETE FROM transcripts WHERE job_id = ?", (job_id,))
 

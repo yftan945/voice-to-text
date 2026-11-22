@@ -1,5 +1,6 @@
 import { useRef, useState, type ReactNode } from "react";
 import { fileSize } from "../format";
+import { useT } from "../i18n";
 
 export const AUDIO_ACCEPT = "audio/*,video/*,.qta,.m4a,.mp3,.wav,.aac,.flac,.ogg,.opus,.webm,.mp4,.mov";
 
@@ -16,7 +17,7 @@ export default function FileDropzone({
   title,
   hint,
   accept = AUDIO_ACCEPT,
-  buttonLabel = "選擇檔案",
+  buttonLabel,
   compact = false,
 }: {
   file?: File | null;
@@ -30,6 +31,7 @@ export default function FileDropzone({
   buttonLabel?: string;
   compact?: boolean;
 }) {
+  const t = useT();
   const [over, setOver] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const pick = (list: FileList | undefined | null) => {
@@ -64,7 +66,7 @@ export default function FileDropzone({
         {file ? (
           <>
             <h2 className="break">{file.name}</h2>
-            <p>{fileSize(file.size)}，可以換一個檔案</p>
+            <p>{t("drop.picked", { size: fileSize(file.size) })}</p>
           </>
         ) : (
           <>
@@ -74,7 +76,7 @@ export default function FileDropzone({
         )}
       </div>
       <button type="button" className="btn primary big" disabled={disabled} onClick={() => inputRef.current?.click()}>
-        {file ? "換檔案" : buttonLabel}
+        {file ? t("drop.change") : (buttonLabel ?? t(multiple ? "drop.chooseFiles" : "drop.chooseFile"))}
       </button>
       <input ref={inputRef} type="file" accept={accept} multiple={multiple} hidden onChange={(e) => pick(e.target.files)} />
     </div>

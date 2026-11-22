@@ -5,8 +5,12 @@
 不需要 GPU，也不會呼叫任何模型。內容全部是虛構的（講者、產品、對話都不對應真實人物或公司）。
 
 用法（通常由 scripts/demo.sh 呼叫）：
-  python3 scripts/demo_seed.py --data-dir /tmp/demo-data --audio-cache /tmp/demo-audio
+  python3 scripts/demo_seed.py --data-dir /tmp/demo-data --audio-cache /tmp/demo-audio [--lang en]
   python3 scripts/demo_seed.py --audio-only --audio-cache /tmp/demo-audio   # 只產生音檔（需要 ffmpeg，不載入 app）
+
+語言：預設 zh-TW（中文示範資料）；--lang en 換成英文示範資料（另一組固定 id、英文檔名與講者）。
+使用者看得到的文字（stage、text_source.label、warnings）一律存成 i18n 訊息（{"code","params"}），
+和 app/pipeline/runner.py 的寫法一致，讀取時依請求語言組成文字。
 
 音檔：用 ffmpeg 產生同長度、低音量的 m4a（AAC），讓播放器可以載入；已存在於 --audio-cache 的檔案直接沿用。
 資料目錄裡已經有任務時拒絕寫入，避免汙染真實資料。
@@ -34,6 +38,15 @@ JOB_DESIGN = "5e8d1c0a4b7f4c1e9a3d2b6f7c8e9a04"
 JOB_RUNNING = "5e8d1c0a4b7f4c1e9a3d2b6f7c8e9a05"
 JOB_QUEUED_1 = "5e8d1c0a4b7f4c1e9a3d2b6f7c8e9a06"
 JOB_QUEUED_2 = "5e8d1c0a4b7f4c1e9a3d2b6f7c8e9a07"
+
+# ---- 英文版的固定任務 id ----
+EN_JOB_MEETING = "7f2b9d3e6a1c4e58b0d4c9a2e1f3b701"
+EN_JOB_INTERVIEW = "7f2b9d3e6a1c4e58b0d4c9a2e1f3b702"
+EN_JOB_MEMO = "7f2b9d3e6a1c4e58b0d4c9a2e1f3b703"
+EN_JOB_DESIGN = "7f2b9d3e6a1c4e58b0d4c9a2e1f3b704"
+EN_JOB_RUNNING = "7f2b9d3e6a1c4e58b0d4c9a2e1f3b705"
+EN_JOB_QUEUED_1 = "7f2b9d3e6a1c4e58b0d4c9a2e1f3b706"
+EN_JOB_QUEUED_2 = "7f2b9d3e6a1c4e58b0d4c9a2e1f3b707"
 
 # ---- 逐字稿內容（講者索引 0／1／2，對應 SPEAKER_00／01／02） ----
 
@@ -102,9 +115,75 @@ DESIGN = [
 ]
 
 
+# 英文版逐字稿內容（結構與上面的中文版相同）
+EN_MEETING = [
+    (0, "Morning, everyone. Let's start the weekly product sync with a quick look at where we are in this sprint."),
+    (0, "We have three topics today: the onboarding redesign, the new payments API integration, and next week's release schedule."),
+    (1, "I'll start with onboarding. The final designs went over to Leo yesterday, and we cut the flow from five steps down to three."),
+    (1, "User testing was pretty clear that people don't want a long form up front, so they now land on the home screen first and finish their profile later."),
+    (0, "That sounds reasonable. What are we expecting that to do for conversion?"),
+    (1, "Our internal estimate is that completion goes from about sixty percent to around eighty, but we'll only know once the A/B test numbers come in."),
+    (2, "On the engineering side, the front end should take about three days. One thing to watch: the redirect logic after login has to be rewritten."),
+    (0, "Will that affect existing users?"),
+    (2, "No, existing users skip onboarding entirely. It's behind a feature flag, so if anything goes wrong we can turn it off right away."),
+    (0, "Great. Moving on to the API integration. Leo, where are you stuck?"),
+    (2, "The vendor's documentation is out of date. Two endpoints return a different format than the docs say, and I've already emailed their technical contact."),
+    (2, "If we don't hear back by Thursday, I'll write a small adapter layer to absorb the differences, so nothing else gets blocked."),
+    (0, "I agree. Let's not let an outside schedule drive ours. Do you want me to nudge their product manager?"),
+    (2, "Yes, please. Could you send a follow-up this afternoon? I'll put the technical details together for you."),
+    (0, "Sure, I'll send it before end of day. Next up is the dashboard. Mia, any updates?"),
+    (1, "Yes, the second wireframe is done. The three most-used charts sit at the top, and everything else collapses into expandable sections."),
+    (1, "Leo, could you check whether live chart updates would be too heavy on the backend?"),
+    (2, "Refreshing once a minute should be fine. For true real-time we'd need WebSockets, and that would cost us another sprint."),
+    (0, "Then let's go with the one-minute refresh and park real-time in the backlog until we see how much users ask for it."),
+    (1, "Okay, I'll note that limitation in the designs so nobody gets confused during development."),
+    (0, "Now QA. Leo, can you give us a quick summary of the open bugs?"),
+    (2, "There are four open. Two are P1: push notifications sometimes don't arrive on Android, and exports fail when the text has special characters."),
+    (2, "I expect to fix both by noon tomorrow, and the two P2s can move to the next sprint."),
+    (0, "Good. We'll tentatively release next Wednesday, and slip to Friday if the P1s aren't fixed. Any objections?"),
+    (1, "None from me. I'll have the release notes copy ready by Tuesday."),
+    (2, "Wednesday works, but I'd like a full staging test on Tuesday evening."),
+    (0, "Done. To sum up: three days for onboarding, the API depends on Thursday's reply, the dashboard refreshes every minute, and we release Wednesday. Thanks, everyone."),
+]
+
+EN_INTERVIEW = [
+    (0, "Thanks for making time to talk with us today. To start, could you tell us how you usually use the app?"),
+    (1, "Mostly on my commute. I upload a meeting recording, and by the time I'm back at the office I can read the transcript."),
+    (0, "Is there anything that gets in your way?"),
+    (1, "Yes, product names get misheard a lot. Sprint turns into something else, and I have to fix it by hand every time."),
+    (0, "If you could build a dictionary of your common terms, would that help?"),
+    (1, "Definitely. I wouldn't have to keep correcting them, and my teammates could share the same list."),
+    (0, "Got it. And which export format do you use most?"),
+    (1, "Mostly Word, because I paste it into the meeting notes. I use SRT now and then for internal training videos."),
+    (0, "That's really helpful. We'll write this up and add it to our backlog."),
+    (1, "Sounds good. Happy to try out new features whenever you need a tester."),
+]
+
+EN_MEMO = [
+    (0, "Quick note to self: the pre-release checklist has to be done by Friday."),
+    (0, "First, confirm the staging database has been backed up and that the backup actually restores."),
+    (0, "Second, update the API docs to the latest version, especially the two new endpoints."),
+    (0, "Third, the onboarding feature flag stays off by default until QA signs off."),
+    (0, "Finally, ask Mia to proofread the release notes and share them with everyone by Thursday noon."),
+    (0, "That's it. Remind myself again on Thursday morning."),
+]
+
+EN_DESIGN = [
+    (1, "This is the new home page layout. Recent jobs sit at the top, and the other actions move into the sidebar."),
+    (2, "Will the sidebar feel cramped on small screens? I'm worried about tap targets on a phone."),
+    (1, "I thought about that, so on mobile it becomes a bottom tab bar with icons and text labels."),
+    (2, "Then we're fine. We can share the same components and only change the layout."),
+    (1, "I also adjusted the dark mode colors, and the contrast now meets the accessibility guidelines."),
+    (2, "Good. I'll turn the design tokens into JSON today so the front end can import them without any color drift."),
+    (1, "Perfect. I'll post the latest Figma link in the channel later."),
+    (2, "Got it. Let's go through the details once more before the next sprint starts."),
+    (1, "Sounds good. That's all for today's design review."),
+]
+
+
 # ---- 逐字稿時間軸（依字數估算每段長度，段與段之間留停頓） ----
 
-_ASCII_WORD = re.compile(r"[A-Za-z0-9][A-Za-z0-9/\-]*")
+_ASCII_WORD = re.compile(r"[A-Za-z0-9][A-Za-z0-9/\-']*")
 _CJK = re.compile(r"[⺀-鿿]")
 
 
@@ -112,7 +191,8 @@ def _seg_seconds(text: str) -> float:
     words = len(_ASCII_WORD.findall(text))
     cjk = len(_CJK.findall(text))
     pauses = len(re.findall(r"[，、；：,;:]", text))
-    return 0.6 + cjk * 0.165 + words * 0.4 + pauses * 0.18
+    # 純英文的句子說話較快（每個字約 0.3 秒）；含中文的句子維持原本的估法
+    return 0.6 + cjk * 0.165 + words * (0.4 if cjk else 0.3) + pauses * 0.18
 
 
 def layout(lines: list[tuple[int, str]]) -> tuple[list[dict], float]:
@@ -138,44 +218,9 @@ def make_embedding(seed: int, dim: int = 256) -> list[float]:
 
 
 # 聲紋 seed（同一個 seed ＝ 同一個人）：講者的 embedding 與聲紋庫的向量一致，結果頁會顯示「已比對聲紋」
-VP_SEED = {"設計師 Mia": 101, "工程師 Leo": 202}
 HOST_SEED = 303  # 主持人：沒有存成聲紋（結果頁會出現「存成聲紋」）
 
-# 任務清單：done 的任務 → 逐字稿、音檔長度由 layout 決定
-# speakers：講者索引 → (名稱或 None, 聲紋 seed 或 None, 相似度)
-DONE_JOBS = [
-    {
-        "id": JOB_MEETING, "filename": "產品週會_第12週.m4a", "lines": MEETING, "model": "breeze-asr-25",
-        "num_speakers": 3, "dictionary_ids": [1], "age_hours": 3.0, "process_ratio": 0.062,
-        "speakers": {0: ("主持人", None, None), 1: ("設計師 Mia", 101, 0.83), 2: ("工程師 Leo", 202, 0.78)},
-    },
-    {
-        "id": JOB_DESIGN, "filename": "設計評審_新版首頁.m4a", "lines": DESIGN, "model": "breeze-asr-25",
-        "num_speakers": None, "dictionary_ids": [1], "age_hours": 26.0, "process_ratio": 0.065,
-        "speakers": {1: ("設計師 Mia", 101, 0.81), 2: ("工程師 Leo", 202, 0.76)},
-    },
-    {
-        "id": JOB_INTERVIEW, "filename": "客戶訪談_使用情境.m4a", "lines": INTERVIEW, "model": "large-v3-turbo",
-        "num_speakers": 2, "dictionary_ids": [], "age_hours": 52.0, "process_ratio": 0.027,
-        "speakers": {0: (None, None, None), 1: (None, None, None)},
-    },
-    {
-        "id": JOB_MEMO, "filename": "語音備忘_發版檢查清單.m4a", "lines": MEMO, "model": "breeze-asr-25",
-        "num_speakers": 1, "dictionary_ids": [1], "age_hours": 75.0, "process_ratio": 0.06,
-        "speakers": {0: (None, None, None)},
-    },
-]
-
-# 處理中與排隊中的任務（只有資料列，沒有逐字稿；demo 伺服器不啟動 worker，狀態不會變）
-RUNNING_JOB = {"id": JOB_RUNNING, "filename": "使用者研究_訪談紀錄.m4a", "duration": 2412.0, "model": "breeze-asr-25",
-               "progress": 0.43, "stage": "語音轉文字中"}
-QUEUED_JOBS = [
-    {"id": JOB_QUEUED_1, "filename": "季度回顧會議.m4a", "duration": 1836.0, "model": "breeze-asr-25"},
-    {"id": JOB_QUEUED_2, "filename": "新人教育訓練.m4a", "duration": 927.0, "model": "large-v3-turbo"},
-]
-
-DICTIONARY_NAME = "產品用語"
-DICTIONARY_CONTENT = """# 產品週會常用詞（示範字典）
+DICTIONARY_CONTENT_ZH = """# 產品週會常用詞（示範字典）
 onboarding = on boarding, 昂波丁
 sprint = 斯普林特
 staging = 史丹京
@@ -186,6 +231,99 @@ WebSocket
 backlog
 release note
 """
+
+DICTIONARY_CONTENT_EN = """# Weekly sync terms (demo dictionary)
+onboarding = on boarding, on-boarding
+sprint = spring
+staging = stagin
+feature flag = feature flug
+WebSocket = web socket
+API
+dashboard
+backlog
+release notes
+"""
+
+# 每個語言一組示範資料。done 的任務 → 逐字稿、音檔長度由 layout 決定
+# speakers：講者索引 → (名稱或 None, 聲紋 seed 或 None, 相似度)
+# running／queued：只有資料列，沒有逐字稿（demo 伺服器不啟動 worker，狀態不會變）
+# running 的 stage 是 i18n 訊息的 code（寫入時用 i18n.msg 組成）
+DATASETS: dict[str, dict] = {
+    "zh-TW": {
+        "language": "zh",
+        "voiceprints": {"設計師 Mia": 101, "工程師 Leo": 202},
+        "dictionary": ("產品用語", DICTIONARY_CONTENT_ZH),
+        "done": [
+            {
+                "id": JOB_MEETING, "filename": "產品週會_第12週.m4a", "lines": MEETING, "model": "breeze-asr-25",
+                "num_speakers": 3, "dictionary_ids": [1], "age_hours": 3.0, "process_ratio": 0.062,
+                "speakers": {0: ("主持人", None, None), 1: ("設計師 Mia", 101, 0.83), 2: ("工程師 Leo", 202, 0.78)},
+            },
+            {
+                "id": JOB_DESIGN, "filename": "設計評審_新版首頁.m4a", "lines": DESIGN, "model": "breeze-asr-25",
+                "num_speakers": None, "dictionary_ids": [1], "age_hours": 26.0, "process_ratio": 0.065,
+                "speakers": {1: ("設計師 Mia", 101, 0.81), 2: ("工程師 Leo", 202, 0.76)},
+            },
+            {
+                "id": JOB_INTERVIEW, "filename": "客戶訪談_使用情境.m4a", "lines": INTERVIEW, "model": "large-v3-turbo",
+                "num_speakers": 2, "dictionary_ids": [], "age_hours": 52.0, "process_ratio": 0.027,
+                "speakers": {0: (None, None, None), 1: (None, None, None)},
+            },
+            {
+                "id": JOB_MEMO, "filename": "語音備忘_發版檢查清單.m4a", "lines": MEMO, "model": "breeze-asr-25",
+                "num_speakers": 1, "dictionary_ids": [1], "age_hours": 75.0, "process_ratio": 0.06,
+                "speakers": {0: (None, None, None)},
+            },
+        ],
+        "running": {"id": JOB_RUNNING, "filename": "使用者研究_訪談紀錄.m4a", "duration": 2412.0,
+                    "model": "breeze-asr-25", "progress": 0.43, "stage": "stage.transcribe"},
+        "queued": [
+            {"id": JOB_QUEUED_1, "filename": "季度回顧會議.m4a", "duration": 1836.0, "model": "breeze-asr-25"},
+            {"id": JOB_QUEUED_2, "filename": "新人教育訓練.m4a", "duration": 927.0, "model": "large-v3-turbo"},
+        ],
+    },
+    "en": {
+        "language": "en",
+        "voiceprints": {"Mia (Design)": 101, "Leo (Engineering)": 202},
+        "dictionary": ("Product terms", DICTIONARY_CONTENT_EN),
+        "done": [
+            {
+                "id": EN_JOB_MEETING, "filename": "Weekly product sync – week 12.m4a", "lines": EN_MEETING,
+                "model": "large-v3", "num_speakers": 3, "dictionary_ids": [1], "age_hours": 3.0,
+                "process_ratio": 0.062,
+                "speakers": {0: ("Host", None, None), 1: ("Mia (Design)", 101, 0.83),
+                             2: ("Leo (Engineering)", 202, 0.78)},
+            },
+            {
+                "id": EN_JOB_DESIGN, "filename": "Design review – new home page.m4a", "lines": EN_DESIGN,
+                "model": "large-v3", "num_speakers": None, "dictionary_ids": [1], "age_hours": 26.0,
+                "process_ratio": 0.065,
+                "speakers": {1: ("Mia (Design)", 101, 0.81), 2: ("Leo (Engineering)", 202, 0.76)},
+            },
+            {
+                "id": EN_JOB_INTERVIEW, "filename": "Customer interview – usage scenarios.m4a",
+                "lines": EN_INTERVIEW, "model": "large-v3-turbo", "num_speakers": 2, "dictionary_ids": [],
+                "age_hours": 52.0, "process_ratio": 0.027,
+                "speakers": {0: (None, None, None), 1: (None, None, None)},
+            },
+            {
+                "id": EN_JOB_MEMO, "filename": "Voice memo – release checklist.m4a", "lines": EN_MEMO,
+                "model": "large-v3", "num_speakers": 1, "dictionary_ids": [1], "age_hours": 75.0,
+                "process_ratio": 0.06,
+                "speakers": {0: (None, None, None)},
+            },
+        ],
+        "running": {"id": EN_JOB_RUNNING, "filename": "User research – interview recording.m4a",
+                    "duration": 2412.0, "model": "large-v3", "progress": 0.43, "stage": "stage.transcribe"},
+        "queued": [
+            {"id": EN_JOB_QUEUED_1, "filename": "Quarterly review meeting.m4a", "duration": 1836.0,
+             "model": "large-v3"},
+            {"id": EN_JOB_QUEUED_2, "filename": "New hire training session.m4a", "duration": 927.0,
+             "model": "large-v3-turbo"},
+        ],
+    },
+}
+
 
 
 # ---- 音檔 ----
@@ -209,9 +347,9 @@ def make_audio(dest: Path, seconds: float) -> None:
     tmp.replace(dest)
 
 
-def ensure_audio_cache(cache: Path) -> None:
+def ensure_audio_cache(cache: Path, lang: str = "zh-TW") -> None:
     cache.mkdir(parents=True, exist_ok=True)
-    for spec in DONE_JOBS:
+    for spec in DATASETS[lang]["done"]:
         dest = cache / audio_name(spec["id"])
         if not dest.exists():
             _, total = layout(spec["lines"])
@@ -221,7 +359,10 @@ def ensure_audio_cache(cache: Path) -> None:
 # ---- 組逐字稿 ----
 
 
-def build_transcript(spec: dict, embedding_model: str) -> tuple[dict, float]:
+def build_transcript(spec: dict, embedding_model: str, language: str = "zh") -> tuple[dict, float]:
+    """逐字稿的結構與 app/pipeline/runner.py 一致：text_source.label 與 warnings 是 i18n 訊息。"""
+    from app.i18n import msg  # noqa: E402（seed() 設好 DATA_DIR、加入 sys.path 之後才能 import）
+
     segments, total = layout(spec["lines"])
     speakers: dict[str, dict] = {}
     embeddings: dict[str, list[float]] = {}
@@ -231,12 +372,10 @@ def build_transcript(spec: dict, embedding_model: str) -> tuple[dict, float]:
         embeddings[label] = make_embedding(vp_seed if vp_seed is not None else HOST_SEED + idx)
     transcript = {
         "version": 1,
-        "language": "zh",
+        "language": language,
         "duration": float(total),
         "model": spec["model"],
-        "text_source": {"type": "model", "model": spec["model"],
-                        "label": "精準（Breeze-ASR-25）" if spec["model"] == "breeze-asr-25"
-                        else "快速（Whisper large-v3-turbo）"},
+        "text_source": {"type": "model", "model": spec["model"], "label": msg(f"model.{spec['model']}.label")},
         "diarization": {"enabled": True, "ok": True, "error": None, "num_speakers": spec["num_speakers"],
                         "detected_speakers": len(speakers)},
         "speakers": speakers,
@@ -251,13 +390,15 @@ def build_transcript(spec: dict, embedding_model: str) -> tuple[dict, float]:
 # ---- 寫入 ----
 
 
-def seed(data_dir: Path, audio_cache: Path) -> None:
+def seed(data_dir: Path, audio_cache: Path, lang: str = "zh-TW") -> None:
     os.environ["DATA_DIR"] = str(data_dir)
     sys.path.insert(0, str(ROOT / "backend"))
     from app import db, dictionary_store, storage, voiceprint  # noqa: E402
     from app.config import settings  # noqa: E402
+    from app.i18n import msg  # noqa: E402
     from app.jobs import queue  # noqa: E402
 
+    data = DATASETS[lang]
     db.init_db()
     if queue.list_all():
         sys.exit(f"{data_dir} 已經有任務資料，不覆寫（請換一個空的資料目錄）")
@@ -266,14 +407,14 @@ def seed(data_dir: Path, audio_cache: Path) -> None:
     audio_cache.mkdir(parents=True, exist_ok=True)
 
     # 字典與聲紋（聲紋 id 由資料庫配發，逐字稿裡的 voiceprint_id 要對應）
-    dictionary_store.create(DICTIONARY_NAME, DICTIONARY_CONTENT)
+    dictionary_store.create(*data["dictionary"])
     vp_ids: dict[int, int] = {}
-    for name, seed_no in VP_SEED.items():
+    for name, seed_no in data["voiceprints"].items():
         vp = voiceprint.create(name, make_embedding(seed_no), settings.embedding_model, "upload", 38.5)
         vp_ids[seed_no] = vp["id"]
 
-    for spec in DONE_JOBS:
-        transcript, total = build_transcript(spec, settings.embedding_model)
+    for spec in data["done"]:
+        transcript, total = build_transcript(spec, settings.embedding_model, data["language"])
         transcript["embedding_model"] = settings.embedding_model
         for idx, (name, vp_seed, sim) in spec["speakers"].items():
             if vp_seed is not None:
@@ -293,29 +434,29 @@ def seed(data_dir: Path, audio_cache: Path) -> None:
         storage.save_original(spec["id"], transcript)
         created = now - spec["age_hours"] * 3600
         process = round(total * spec["process_ratio"] + 3.0, 3)
-        queue.update(spec["id"], status="done", stage="完成", progress=1.0, created_at=created, queued_at=created,
-                     started_at=created + 4, finished_at=created + 4 + process + 12, has_transcript=True,
-                     has_playback=True, warnings=[], process_seconds=process, load_seconds=12.0,
-                     position=0)
+        queue.update(spec["id"], status="done", stage=msg("stage.done"), progress=1.0, created_at=created,
+                     queued_at=created, started_at=created + 4, finished_at=created + 4 + process + 12,
+                     has_transcript=True, has_playback=True, warnings=[], process_seconds=process,
+                     load_seconds=12.0, position=0)
 
     # 處理中：只是一列資料，沒有 worker 去動它
-    r = RUNNING_JOB
+    r = data["running"]
     queue.create(filename=r["filename"], model=r["model"], diarize=True, num_speakers=None, dictionary_ids=[1],
                  audio_ext=".m4a", size_bytes=int(r["duration"] * 4000), job_id=r["id"], duration=r["duration"])
     started = now - 25 * 60
-    queue.update(r["id"], status="running", stage=r["stage"], progress=r["progress"], created_at=started - 60,
-                 queued_at=started - 60, started_at=started, position=0)
+    queue.update(r["id"], status="running", stage=msg(r["stage"]), progress=r["progress"],
+                 created_at=started - 60, queued_at=started - 60, started_at=started, position=0)
 
     # 排隊中：建立順序＝排隊順序
-    for i, q in enumerate(QUEUED_JOBS):
+    for i, q in enumerate(data["queued"]):
         queue.create(filename=q["filename"], model=q["model"], diarize=True, num_speakers=None,
                      dictionary_ids=[1] if i == 0 else [], audio_ext=".m4a",
                      size_bytes=int(q["duration"] * 4000), job_id=q["id"], duration=q["duration"])
         t = now - (20 - 3 * i) * 60
         queue.update(q["id"], created_at=t, queued_at=t)
 
-    print(f"示範資料已建立：{data_dir}")
-    for spec in DONE_JOBS:
+    print(f"示範資料已建立（{lang}）：{data_dir}")
+    for spec in data["done"]:
         print(f"  已完成  /jobs/{spec['id']}  {spec['filename']}")
 
 
@@ -324,17 +465,18 @@ def main() -> None:
     ap.add_argument("--data-dir", help="資料目錄（SQLite 與音檔；預設讀 DATA_DIR 環境變數）")
     ap.add_argument("--audio-cache", required=True, help="示範音檔的存放目錄（已存在的檔案直接沿用）")
     ap.add_argument("--audio-only", action="store_true", help="只產生音檔到 --audio-cache，不寫資料庫")
+    ap.add_argument("--lang", choices=sorted(DATASETS), default="zh-TW", help="示範資料的語言（預設 zh-TW）")
     args = ap.parse_args()
 
     cache = Path(args.audio_cache)
     if args.audio_only:
-        ensure_audio_cache(cache)
+        ensure_audio_cache(cache, args.lang)
         print(f"音檔已備妥：{cache}")
         return
     data_dir = args.data_dir or os.environ.get("DATA_DIR")
     if not data_dir:
         sys.exit("請用 --data-dir 指定資料目錄")
-    seed(Path(data_dir), cache)
+    seed(Path(data_dir), cache, args.lang)
 
 
 if __name__ == "__main__":

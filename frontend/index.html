@@ -14,6 +14,20 @@
         var t = localStorage.getItem("v2t.theme");
         if (t === "light" || t === "dark") document.documentElement.dataset.theme = t;
       } catch (e) {}
+      // 介面語言（與 src/i18n 相同的規則）：手動選的優先，否則瀏覽器語言任何一個以 zh 開頭就用中文
+      (function () {
+        var l = null;
+        try {
+          l = localStorage.getItem("v2t.lang");
+        } catch (e) {}
+        if (l !== "zh-TW" && l !== "en") {
+          var ls = navigator.languages && navigator.languages.length ? navigator.languages : [navigator.language];
+          l = "en";
+          for (var i = 0; i < ls.length; i++) if (String(ls[i]).toLowerCase().indexOf("zh") === 0) l = "zh-TW";
+        }
+        document.documentElement.lang = l === "en" ? "en" : "zh-Hant-TW";
+        if (l === "en") document.title = "Voice to Text";
+      })();
     </script>
   </head>
   <body>

@@ -14,11 +14,12 @@ import threading
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Request
 from pydantic import BaseModel, Field
 
 from .. import youtube as yt
 from .. import youtube_cache
+from ..i18n import DEFAULT_LANG, ApiError, localize, msg, resolve_lang
 from ..jobs import queue
 from ..pipeline import ytdlp
 from .jobs import _public_job, _validate_options
@@ -36,7 +37,7 @@ _resolve_pool = ThreadPoolExecutor(max_workers=MAX_CONCURRENT, thread_name_prefi
 def video_info(video_id: str) -> dict[str, Any]:
     """影片摘要（有快取）；無法處理的影片丟 YouTubeError（失敗也快取 5 分鐘）。"""
     if not yt.VIDEO_ID_RE.match(video_id):
-        raise yt.YouTubeError("invalid", "影片 ID 格式錯誤", 400)
+        raise yt.YouTubeError("invalid", msg("youtube.error.invalid_id"), 400)
     hit = youtube_cache.summary(video_id)
     if hit is not None:
         return hit
@@ -61,17 +62,17 @@ def video_info(video_id: str) -> dict[str, Any]:
     return summary
 
 
-def _playable_or_error(summary: dict[str, Any]) -> dict[str, Any]:
+def _playable_or_error(summary: dict[str, Any], lang: str) -> dict[str, Any]:
     out = dict(summary)
     try:
         yt.check_playable(summary)
         out["error"] = None
     except yt.YouTubeError as e:
-        out["error"] = e.message
+        out["error"] = localize(e.msg, lang)
     return out
 
 
-def playlist_info(playlist_id: str) -> dict[str, Any]:
+def playlist_info(playlist_id: str, lang: str = DEFAULT_LANG) -> dict[str, Any]:
     with _slots:
         data = ytdlp.fetch_playlist(playlist_id)
     entries = []
@@ -92,7 +93,8 @@ def playlist_info(playlist_id: str) -> dict[str, Any]:
             "duration": float(duration) if isinstance(duration, (int, float)) and duration > 0 else None,
             "channel": e.get("channel") or e.get("uploader") or "",
             "unavailable": unavailable or live,
-            "reason": "私人或已刪除的影片" if unavailable else ("直播尚未結束" if live else None),
+            "reason": localize(msg("youtube.entry.unavailable"), lang) if unavailable
+            else (localize(msg("youtube.entry.live"), lang) if live else None),
         })
     count = data.get("playlist_count")
     return {
@@ -110,43 +112,46 @@ class ResolveBody(BaseModel):
     text: str = Field(max_length=200_000)
 
 
-def _resolve_one(raw: str) -> dict[str, Any]:
+def _resolve_one(raw: str, lang: str = DEFAULT_LANG) -> dict[str, Any]:
     try:
         parsed = yt.parse_url(raw)
     except yt.InvalidUrl as e:
-        return {"input": raw, "kind": "invalid", "error": str(e)}
+        return {"input": raw, "kind": "invalid", "error": localize(e.msg, lang)}
     if parsed.kind == "video":
         try:
-            return {"input": raw, "kind": "video", "video": _playable_or_error(video_info(parsed.video_id or ""))}
+            return {"input": raw, "kind": "video",
+                    "video": _playable_or_error(video_info(parsed.video_id or ""), lang)}
         except yt.YouTubeError as e:
-            return {"input": raw, "kind": "video", "video_id": parsed.video_id, "error": e.message}
+            return {"input": raw, "kind": "video", "video_id": parsed.video_id, "error": localize(e.msg, lang)}
     try:
-        return {"input": raw, "kind": "playlist", "playlist": playlist_info(parsed.playlist_id or ""),
+        return {"input": raw, "kind": "playlist", "playlist": playlist_info(parsed.playlist_id or "", lang),
                 "video_id": parsed.video_id}
     except yt.YouTubeError as e:
-        msg = e.message if e.code != "removed" else "播放清單不存在或是私人清單。請確認網址，或把清單改成公開／不公開後再試。"
-        return {"input": raw, "kind": "playlist", "playlist_id": parsed.playlist_id, "error": msg}
+        message = e.msg if e.code != "removed" else msg("youtube.error.playlist_missing")
+        return {"input": raw, "kind": "playlist", "playlist_id": parsed.playlist_id,
+                "error": localize(message, lang)}
 
 
 @router.post("/youtube/resolve")
-async def resolve(body: ResolveBody) -> dict[str, Any]:
+async def resolve(body: ResolveBody, request: Request) -> dict[str, Any]:
     """解析貼上的網址：單一影片回傳資訊（含有沒有人工字幕）；播放清單只列出影片（不逐支查字幕，
     前端再用 /api/youtube/videos/{id} 逐支補上）；不是 YouTube 網址的回傳錯誤。"""
     lines, truncated = yt.collect_lines(body.text, MAX_LINES)
     if not lines:
-        raise HTTPException(400, "請貼上 YouTube 網址")
+        raise ApiError(400, "youtube.resolve.empty")
     # 不用 asyncio.to_thread：50 個等 yt-dlp 的工作會占滿預設 executor，卡住上傳與其他 to_thread 呼叫
     loop = asyncio.get_running_loop()
-    items = await asyncio.gather(*(loop.run_in_executor(_resolve_pool, _resolve_one, raw) for raw in lines))
+    lang = resolve_lang(request)
+    items = await asyncio.gather(*(loop.run_in_executor(_resolve_pool, _resolve_one, raw, lang) for raw in lines))
     return {"items": items, "truncated": truncated}
 
 
 @router.get("/youtube/videos/{video_id}")
-def get_video(video_id: str) -> dict[str, Any]:
+def get_video(video_id: str, request: Request) -> dict[str, Any]:
     try:
-        return _playable_or_error(video_info(video_id))
+        return _playable_or_error(video_info(video_id), resolve_lang(request))
     except yt.YouTubeError as e:
-        raise HTTPException(e.status, e.message) from e
+        raise ApiError(e.status, e.msg) from e
 
 
 class YoutubeJobBody(BaseModel):
@@ -168,7 +173,7 @@ def create_youtube_job(body: YoutubeJobBody, request: Request) -> dict[str, Any]
     model = body.model or settings.effective_default_model()
     batch_id = (body.batch_id or "").strip() or None
     if batch_id is not None and not queue.BATCH_ID_RE.match(batch_id):
-        raise HTTPException(400, "批次代號格式錯誤")
+        raise ApiError(400, "job.batch_id.invalid")
     num = body.num_speakers if body.num_speakers and body.num_speakers > 0 else None
     opt = settings.model_option(model)
     if opt is None or opt.available():
@@ -177,12 +182,12 @@ def create_youtube_job(body: YoutubeJobBody, request: Request) -> dict[str, Any]
         summary = video_info(body.video_id)
         yt.check_playable(summary)
     except yt.YouTubeError as e:
-        raise HTTPException(e.status, e.message) from e
+        raise ApiError(e.status, e.msg) from e
     if opt is not None and not opt.available():
         # 模型還沒安裝：會走字幕路線（不需要 Whisper）的任務照樣可以建立，其他的照原本規則擋下
         if body.use_captions and summary.get("caption_lang"):
             if num is not None and not (1 <= num <= 20):
-                raise HTTPException(400, "講者人數要介於 1 到 20")
+                raise ApiError(400, "job.num_speakers.range", min=1, max=20)
         else:
             _validate_options(model, num, body.dictionary_ids)
     job = queue.create(

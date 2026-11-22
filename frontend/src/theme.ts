@@ -18,7 +18,11 @@ function apply(choice: ThemeChoice) {
   else root.dataset.theme = choice;
 }
 
-export const THEME_LABEL: Record<ThemeChoice, string> = { system: "跟隨系統", light: "淺色", dark: "深色" };
+/** 外觀選項的顯示名稱（i18n 字典的 key） */
+export const THEME_LABEL = { system: "theme.system", light: "theme.light", dark: "theme.dark" } as const satisfies Record<
+  ThemeChoice,
+  string
+>;
 
 // 整個頁面共用一份外觀狀態：導覽列與結果頁「⋯」選單裡的外觀選項同時顯示同一個值
 let current: ThemeChoice = read();

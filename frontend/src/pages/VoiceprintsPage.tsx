@@ -1,12 +1,15 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api } from "../api";
 import FileDropzone from "../components/FileDropzone";
 import { ConfirmModal, PromptModal } from "../components/Modal";
 import { dateTime } from "../format";
 import { useIsMobile } from "../hooks";
+import { useLang, useT } from "../i18n";
 import type { Voiceprint } from "../types";
 
 export default function VoiceprintsPage() {
+  const t = useT();
+  const lang = useLang();
   const isMobile = useIsMobile();
   const [list, setList] = useState<Voiceprint[] | null>(null);
   const [name, setName] = useState("");
@@ -17,9 +20,30 @@ export default function VoiceprintsPage() {
   const [renaming, setRenaming] = useState<Voiceprint | null>(null);
   const [deleting, setDeleting] = useState<Voiceprint | null>(null);
 
+  // 本頁新增、改名、刪除完成的次數：讀取途中有過這些操作，讀回來的清單可能是舊的（會蓋掉剛儲存的結果），丟掉重讀
+  const mutations = useRef(0);
+  // 換語言時重新讀（讀取錯誤訊息跟著換）；換頁或再換語言後晚到的舊回應不套用
   useEffect(() => {
-    api.voiceprints().then(setList, (e) => setListError(e.message));
-  }, []);
+    let alive = true;
+    const load = () => {
+      const at = mutations.current;
+      api.voiceprints().then(
+        (l) => {
+          if (!alive) return;
+          if (at !== mutations.current) return load();
+          setList(l);
+          setListError("");
+        },
+        (e) => {
+          if (alive) setListError(e.message);
+        },
+      );
+    };
+    load();
+    return () => {
+      alive = false;
+    };
+  }, [lang]);
 
   const enroll = async () => {
     if (!file || !name.trim()) return;
@@ -27,6 +51,7 @@ export default function VoiceprintsPage() {
     setError("");
     try {
       const vp = await api.enrollVoiceprint(name.trim(), file);
+      mutations.current += 1;
       setList((prev) => [...(prev ?? []), vp]);
       setName("");
       setFile(null);
@@ -39,27 +64,25 @@ export default function VoiceprintsPage() {
 
   return (
     <main className="page lib">
-      <h1>聲紋庫</h1>
-      <p className="lead">
-        登記過的聲紋會在轉錄時自動比對，相似度夠高的講者會直接標上名字；信心不足時顯示成「講者 1」「講者 2」。也可以在結果頁的講者清單按「存成聲紋」。
-      </p>
+      <h1>{t("nav.voiceprints")}</h1>
+      <p className="lead">{t("vp.lead")}</p>
 
       <section className="sec" aria-labelledby="enroll-title">
         <div className="sec-head">
-          <h2 id="enroll-title">上傳樣本登記</h2>
-          <span className="sub">10–30 秒、只有這個人說話的錄音（超過 30 秒只取前 30 秒）</span>
+          <h2 id="enroll-title">{t("vp.enrollTitle")}</h2>
+          <span className="sub">{t("vp.enrollSub")}</span>
         </div>
         <div className="enroll">
           <div>
             <label className="lab" htmlFor="vp-name">
-              名稱
+              {t("common.name")}
             </label>
             <input
               id="vp-name"
               className="field"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="例如：Alex"
+              placeholder={t("vp.namePlaceholder")}
             />
           </div>
           <FileDropzone
@@ -70,8 +93,8 @@ export default function VoiceprintsPage() {
               setFile(f);
               setError("");
             }}
-            title={isMobile ? "選擇樣本錄音檔" : "把樣本錄音拖到這裡"}
-            hint="10–30 秒的單人語音；支援 m4a、mp3、wav、iPhone 語音備忘錄（.qta）等"
+            title={isMobile ? t("vp.dropTitleMobile") : t("vp.dropTitle")}
+            hint={t("vp.dropHint")}
           />
           <div className="form-acts">
             {error && (
@@ -81,7 +104,7 @@ export default function VoiceprintsPage() {
             )}
             <span className="grow" />
             <button type="button" className="btn primary" disabled={busy || !file || !name.trim()} onClick={enroll}>
-              {busy ? "計算聲紋中…" : "登記"}
+              {busy ? t("vp.enrolling") : t("vp.enroll")}
             </button>
           </div>
         </div>
@@ -89,15 +112,15 @@ export default function VoiceprintsPage() {
 
       <section className="sec" aria-labelledby="vp-title">
         <div className="sec-head">
-          <h2 id="vp-title">已登記的聲紋</h2>
-          {list && <span className="sub num">{list.length} 筆</span>}
+          <h2 id="vp-title">{t("vp.listTitle")}</h2>
+          {list && <span className="sub num">{t("vp.count", { n: list.length })}</span>}
         </div>
         {listError ? (
           <p className="err">{listError}</p>
         ) : list === null ? (
-          <p className="empty">載入中…</p>
+          <p className="empty">{t("common.loading")}</p>
         ) : list.length === 0 ? (
-          <p className="empty">還沒有登記任何聲紋。</p>
+          <p className="empty">{t("vp.empty")}</p>
         ) : (
           <ul className="vp-list">
             {list.map((vp) => (
@@ -105,17 +128,22 @@ export default function VoiceprintsPage() {
                 <div className="vp-main">
                   <span className="vp-name">{vp.name}</span>
                   <small className="num">
-                    {vp.source === "upload" ? "上傳樣本" : "從逐字稿存入"}
-                    {vp.duration ? `，${vp.duration.toFixed(0)} 秒` : ""}，{dateTime(vp.created_at)}
+                    {[
+                      vp.source === "upload" ? t("vp.fromUpload") : t("vp.fromTranscript"),
+                      vp.duration ? t("time.s", { s: Math.round(vp.duration) }) : "",
+                      dateTime(vp.created_at),
+                    ]
+                      .filter(Boolean)
+                      .join(t("common.sep"))}
                   </small>
-                  {!vp.compatible && <small className="warn-text">聲紋模型已更換，這筆不會被比對，請重新登記</small>}
+                  {!vp.compatible && <small className="warn-text">{t("vp.incompatible")}</small>}
                 </div>
                 <div className="vp-acts">
                   <button type="button" className="tbtn" onClick={() => setRenaming(vp)}>
-                    改名
+                    {t("common.rename")}
                   </button>
                   <button type="button" className="tbtn danger" onClick={() => setDeleting(vp)}>
-                    刪除
+                    {t("common.delete")}
                   </button>
                 </div>
               </li>
@@ -126,13 +154,14 @@ export default function VoiceprintsPage() {
 
       {renaming && (
         <PromptModal
-          title="聲紋改名"
-          label="新名稱"
+          title={t("vp.renameTitle")}
+          label={t("vp.newName")}
           initial={renaming.name}
-          confirmLabel="儲存"
+          confirmLabel={t("common.save")}
           onClose={() => setRenaming(null)}
           onSubmit={async (n) => {
             await api.renameVoiceprint(renaming.id, n);
+            mutations.current += 1;
             setList((prev) => prev?.map((x) => (x.id === renaming.id ? { ...x, name: n } : x)) ?? prev);
             setRenaming(null);
           }}
@@ -140,13 +169,14 @@ export default function VoiceprintsPage() {
       )}
       {deleting && (
         <ConfirmModal
-          title="刪除聲紋"
-          message={`確定刪除聲紋「${deleting.name}」？之後轉錄不會再自動認出這個人。`}
-          confirmLabel="刪除"
+          title={t("vp.deleteTitle")}
+          message={t("vp.deleteMsg", { name: deleting.name })}
+          confirmLabel={t("common.delete")}
           danger
           onClose={() => setDeleting(null)}
           onConfirm={async () => {
             await api.deleteVoiceprint(deleting.id);
+            mutations.current += 1;
             setList((prev) => prev?.filter((x) => x.id !== deleting.id) ?? prev);
             setDeleting(null);
           }}

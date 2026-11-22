@@ -7,6 +7,7 @@ import "./styles/home.css";
 import "./styles/result.css";
 import "./styles/library.css";
 import App from "./App";
+import { I18nProvider } from "./i18n";
 
 // 字型宣告另外一個 CSS，非同步載入（見 fonts.ts）
 void import("./fonts");
@@ -16,6 +17,8 @@ const router = createBrowserRouter([{ path: "*", element: <App /> }]);
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    <RouterProvider router={router} />
+    <I18nProvider>
+      <RouterProvider router={router} />
+    </I18nProvider>
   </StrictMode>,
 );

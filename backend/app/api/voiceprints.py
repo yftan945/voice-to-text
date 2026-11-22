@@ -7,13 +7,14 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
+from fastapi import APIRouter, File, Form, Request, UploadFile
 from pydantic import BaseModel
 
 from .. import voiceprint
 from ..config import settings
+from ..i18n import ApiError, message_of
 from ..pipeline import audio as audio_mod
-from ..pipeline.errors import GPU_BUSY_MESSAGE, is_oom
+from ..pipeline.errors import is_oom
 from .jobs import UploadTooLarge, save_upload
 
 router = APIRouter(prefix="/api/voiceprints")
@@ -43,7 +44,7 @@ def list_voiceprints() -> list[dict[str, Any]]:
 async def enroll(request: Request, name: str = Form(...), file: UploadFile = File(...)) -> dict[str, Any]:
     name = name.strip()
     if not name:
-        raise HTTPException(400, "請輸入名稱")
+        raise ApiError(400, "voiceprint.name_required")
     work = settings.work_dir / f"vp-{uuid.uuid4().hex}"
     work.mkdir(parents=True, exist_ok=True)
     try:
@@ -51,31 +52,27 @@ async def enroll(request: Request, name: str = Form(...), file: UploadFile = Fil
         try:
             size = await asyncio.to_thread(save_upload, file.file, src, MAX_UPLOAD)
         except UploadTooLarge as e:
-            raise HTTPException(413, f"樣本檔案太大（上限 {MAX_UPLOAD // 1024 // 1024} MB）") from e
+            raise ApiError(413, "voiceprint.sample_too_large", limit_mb=MAX_UPLOAD // 1024 // 1024) from e
         if size == 0:
-            raise HTTPException(400, "檔案是空的")
+            raise ApiError(400, "upload.empty")
         wav = work / "sample.wav"
         try:
             await asyncio.to_thread(audio_mod.convert_to_wav, src, wav)
         except audio_mod.AudioError as e:
-            raise HTTPException(400, str(e)) from e
+            raise ApiError(400, e.msg) from e
         audio = await asyncio.to_thread(audio_mod.load_wav, wav)
         seconds = len(audio) / audio_mod.SAMPLE_RATE
         if seconds < MIN_SECONDS:
             lo, hi = int(MIN_SECONDS), int(MAX_SECONDS)
-            raise HTTPException(
-                400,
-                f"樣本太短（{seconds:.1f} 秒），至少要 {lo} 秒。"
-                f"請上傳 {lo}–{hi} 秒、只有這個人說話的錄音（超過 {hi} 秒只會取前 {hi} 秒）。",
-            )
+            raise ApiError(400, "voiceprint.sample_too_short", seconds=f"{seconds:.1f}", min=lo, max=hi)
         audio = audio[: int(MAX_SECONDS * audio_mod.SAMPLE_RATE)]
         backend = request.app.state.backend
         try:
             emb = await asyncio.to_thread(backend.embed, audio)
         except Exception as e:  # noqa: BLE001
             if is_oom(e):
-                raise HTTPException(503, GPU_BUSY_MESSAGE) from e
-            raise HTTPException(500, f"計算聲紋失敗：{e}") from e
+                raise ApiError(503, "gpu.busy") from e
+            raise ApiError(500, "voiceprint.embed_failed", error=message_of(e)) from e
         vp = voiceprint.create(name, emb, backend.embedding_model, source="upload",
                                duration=round(min(seconds, MAX_SECONDS), 2))
         return _public(vp)
@@ -86,14 +83,14 @@ async def enroll(request: Request, name: str = Form(...), file: UploadFile = Fil
 @router.patch("/{vp_id}")
 def rename(vp_id: int, body: RenameBody) -> dict[str, Any]:
     if not body.name.strip():
-        raise HTTPException(400, "請輸入名稱")
+        raise ApiError(400, "voiceprint.name_required")
     if not voiceprint.rename(vp_id, body.name.strip()):
-        raise HTTPException(404, "找不到聲紋")
+        raise ApiError(404, "voiceprint.not_found")
     return {"id": vp_id, "name": body.name.strip()}
 
 
 @router.delete("/{vp_id}")
 def delete(vp_id: int) -> dict[str, Any]:
     if not voiceprint.delete(vp_id):
-        raise HTTPException(404, "找不到聲紋")
+        raise ApiError(404, "voiceprint.not_found")
     return {"deleted": vp_id}

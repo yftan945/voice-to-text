@@ -3,6 +3,7 @@ import { ConfirmModal } from "../../components/Modal";
 import { useToast } from "../../components/Toast";
 import { diffSpan, joinSeparator, PARAGRAPH_GAP, tc } from "../../format";
 import { prefersReducedMotion, useFinePointer } from "../../hooks";
+import { useT } from "../../i18n";
 import { copyText } from "../../lib/clipboard";
 import { usePlayer, usePlayerStore } from "../../lib/player";
 import { avatarChar, colorClass, segmentIndexAt, speakerName } from "../../lib/speakers";
@@ -15,6 +16,9 @@ const SILENCE_MARK = 6;
 const LONG_PRESS_MS = 480;
 /** 長按觸發後（手指已放開）最多等這麼久，沒等到 click 就不再吃掉 */
 const SWALLOW_MS = 1500;
+
+/** 逐字稿是中文（含粵語、台語、客語）：英文介面下泡泡仍用 TC 字型（見 result.css 的 .thread.zh） */
+const isChinese = (lang: string | null | undefined) => /^(zh|cmn|yue|nan|hak)(-|$)/i.test(lang ?? "");
 
 interface Group {
   key: number;
@@ -43,11 +47,15 @@ function buildGroups(segments: Segment[]): Group[] {
   return out;
 }
 
-const Silence = ({ sec }: { sec: number }) => (
-  <div className="silence" role="separator" aria-label={`靜默 ${Math.round(sec)} 秒`}>
-    （無人聲 {Math.round(sec)} 秒）
-  </div>
-);
+function Silence({ sec }: { sec: number }) {
+  const tx = useT();
+  const s = Math.round(sec);
+  return (
+    <div className="silence" role="separator" aria-label={tx("tr.silenceLabel", { s })}>
+      {tx("tr.silence", { s })}
+    </div>
+  );
+}
 
 /** 泡泡原地編輯：Enter 儲存（選字中不算）、Esc 取消；改動會回報給上層判斷要不要確認放棄。 */
 function SegEditor({
@@ -61,6 +69,7 @@ function SegEditor({
   onCancel: () => void;
   onDirty: (dirty: boolean) => void;
 }) {
+  const tx = useT();
   const [text, setText] = useState(seg.text);
   const ref = useRef<HTMLTextAreaElement>(null);
   useEffect(() => onDirty(text.trim() !== seg.text), [text, seg.text, onDirty]);
@@ -84,7 +93,7 @@ function SegEditor({
         className="edit-ta"
         value={text}
         rows={1}
-        aria-label={`編輯 ${tc(seg.start)} 這一句`}
+        aria-label={tx("tr.editLabel", { t: tc(seg.start) })}
         onChange={(e) => setText(e.target.value.replace(/\n/g, ""))}
         onKeyDown={(e) => {
           if (e.nativeEvent.isComposing || e.keyCode === 229) return; // 注音、拼音選字中
@@ -99,13 +108,16 @@ function SegEditor({
       />
       <div className="edit-bar">
         <span className="edit-hint">
-          <b>Enter</b> 儲存　<b>Esc</b> 取消
+          <b>Enter</b>
+          {tx("tr.hintSave")}
+          <b>Esc</b>
+          {tx("tr.hintCancel")}
         </span>
         <button type="button" className="tbtn" onClick={onCancel}>
-          取消
+          {tx("common.cancel")}
         </button>
         <button type="button" className="tbtn ink" disabled={!text.trim()} onClick={() => onSave(text)}>
-          儲存
+          {tx("common.save")}
         </button>
       </div>
     </div>
@@ -178,13 +190,14 @@ function moveBubbleFocus(from: HTMLElement, key: string) {
 
 /** 一位講者連續的發言：頭像（群組內 sticky）＋名字只出現一次，下面是泡泡。 */
 const SpeakerGroup = memo(function SpeakerGroup(p: GroupProps) {
+  const tx = useT();
   const { group, timeline, h } = p;
 
   const bubbleProps = (seg: Segment, text: ReactNode) => ({
     "data-seg": seg.id,
     tabIndex: p.tabId === seg.id ? 0 : -1,
     role: "button",
-    "aria-label": `${p.name}，${tc(seg.start)}：${seg.text}`,
+    "aria-label": tx("tr.bubbleLabel", { name: p.name, t: tc(seg.start), text: seg.text }),
     "aria-haspopup": "menu" as const,
     "aria-keyshortcuts": "Shift+F10",
     onClick: (e: React.MouseEvent) => {
@@ -252,7 +265,7 @@ const SpeakerGroup = memo(function SpeakerGroup(p: GroupProps) {
                   tabIndex={-1}
                   disabled={!p.canSeek}
                   onClick={() => h.play(seg)}
-                  aria-label={`從 ${tc(seg.start)} 開始播放`}
+                  aria-label={tx("tr.playFrom", { t: tc(seg.start) })}
                 >
                   {tc(seg.start)}
                 </button>
@@ -261,7 +274,7 @@ const SpeakerGroup = memo(function SpeakerGroup(p: GroupProps) {
                     type="button"
                     className="more"
                     tabIndex={-1}
-                    aria-label="這一句的動作"
+                    aria-label={tx("tr.lineActions")}
                     onClick={(e) => h.openMenu(seg, e.currentTarget.parentElement!.previousElementSibling as HTMLElement, false)}
                   >
                     <svg className="i fill" viewBox="0 0 24 24" aria-hidden="true">
@@ -358,6 +371,7 @@ export default function Transcript({
   onEdit: (op: EditOp) => Promise<boolean>;
   onDirtyChange: (dirty: boolean) => void;
 }) {
+  const tx = useT();
   const store = usePlayerStore();
   const toast = useToast();
   const fine = useFinePointer();
@@ -465,8 +479,8 @@ export default function Transcript({
   };
 
   // 給 memo 的群組元件用的穩定 handler（內部讀最新的狀態）
-  const live = useRef({ guardDiscard, closeEditor, canSeek, readOnly, onEdit, onDictUpdated, toast });
-  live.current = { guardDiscard, closeEditor, canSeek, readOnly, onEdit, onDictUpdated, toast };
+  const live = useRef({ guardDiscard, closeEditor, canSeek, readOnly, onEdit, onDictUpdated, toast, tx });
+  live.current = { guardDiscard, closeEditor, canSeek, readOnly, onEdit, onDictUpdated, toast, tx };
   const h = useMemo<Handlers>(() => {
     /** ms 後不再吃掉 click；手指還按著時等放開後再算 */
     const armSwallow = (ms: number) => {
@@ -494,7 +508,7 @@ export default function Transcript({
           live.current.closeEditor();
           const d = diffSpan(seg.text, v);
           if (d.wrong && d.correct) setSuggest({ segId: seg.id, ...d });
-          else live.current.toast("已儲存");
+          else live.current.toast(live.current.tx("common.saved"));
         }
       },
       cancelEdit: () => live.current.guardDiscard(live.current.closeEditor),
@@ -564,7 +578,7 @@ export default function Transcript({
       : (activeId ?? t.segments.find((s) => s.text.trim())?.id ?? null);
 
   return (
-    <article className={`thread${timeline ? "" : " plain"}`} aria-label="逐字稿">
+    <article className={`thread${timeline ? "" : " plain"}${isChinese(t.language) ? " zh" : ""}`} aria-label={tx("tr.article")}>
       {groups.map((g) => {
         const idx = g.speaker ? labels.indexOf(g.speaker) : -1;
         const has = (id: number | null | undefined) => id != null && g.segs.some((s) => s.id === id);
@@ -590,7 +604,7 @@ export default function Transcript({
           />
         );
       })}
-      {t.segments.length === 0 && <p className="empty">沒有辨識出任何文字。</p>}
+      {t.segments.length === 0 && <p className="empty">{tx("tr.empty")}</p>}
 
       {menu && (
         <BubbleMenu
@@ -619,20 +633,20 @@ export default function Transcript({
           onCopy={async () => {
             const seg = menu.seg;
             closeMenu(true);
-            toast((await copyText(seg.text)) ? "已複製這一句" : "這個瀏覽器不允許複製，請手動選取文字");
+            toast((await copyText(seg.text)) ? tx("tr.copied") : tx("tr.copyFailed"));
           }}
           onSetSpeaker={async (label) => {
             const seg = menu.seg;
             closeMenu(true);
             if (await onEdit({ op: "set_speaker", segment_id: seg.id, speaker: label }))
-              toast(`這一句改成「${speakerName(t, label)}」`);
+              toast(tx("tr.setSpeaker", { name: speakerName(t, label) }));
           }}
           onNewSpeaker={async (name) => {
             const seg = menu.seg;
             const ok = await onEdit({ op: "set_speaker", segment_id: seg.id, speaker: null, new_name: name });
             if (ok) {
               closeMenu(true);
-              toast(`這一句改成新講者「${name}」`);
+              toast(tx("tr.newSpeaker", { name }));
             }
             return ok;
           }}
@@ -641,10 +655,10 @@ export default function Transcript({
 
       {pendingDiscard && (
         <ConfirmModal
-          title="放棄修改？"
-          message="這一句還沒儲存，要放棄修改嗎？"
-          confirmLabel="放棄修改"
-          cancelLabel="繼續編輯"
+          title={tx("common.discardTitle")}
+          message={tx("tr.discardMsg")}
+          confirmLabel={tx("common.discard")}
+          cancelLabel={tx("common.keepEditing")}
           danger
           onClose={() => setPendingDiscard(null)}
           onConfirm={() => {

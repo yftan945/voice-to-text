@@ -1,16 +1,19 @@
 """推論流程的例外與錯誤分類。"""
 from __future__ import annotations
 
-GPU_BUSY_MESSAGE = "GPU 忙碌，請稍後重試"
+from ..i18n import DEFAULT_LANG, LocalizedError, render
+
+# zh-TW 文字（log 與舊程式用）；給使用者看的是 i18n 的 gpu.busy
+GPU_BUSY_MESSAGE = render("gpu.busy", {}, DEFAULT_LANG)
 
 
 class Canceled(Exception):
     """使用者取消任務。"""
 
 
-class GpuBusy(RuntimeError):
+class GpuBusy(LocalizedError, RuntimeError):
     def __init__(self) -> None:
-        super().__init__(GPU_BUSY_MESSAGE)
+        super().__init__("gpu.busy")
 
 
 def is_oom(exc: BaseException) -> bool:

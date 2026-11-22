@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { tr, type StrKey } from "../../i18n";
 import type { MediaAdapter, PlayerStore } from "../../lib/player";
 
 /**
@@ -135,13 +136,13 @@ function loadApi(): Promise<YTNamespace> {
   return apiPromise;
 }
 
-/** IFrame API 的錯誤碼 → 說明 */
-function errorReason(code: number): string {
-  if (code === 100) return "影片已被移除、設為私人或不存在";
-  if (code === 101 || code === 150) return "影片擁有者不允許在其他網站嵌入播放";
-  if (code === 153) return "YouTube 播放器設定錯誤（瀏覽器沒有送出來源網址）";
-  if (code === 2) return "影片 ID 有誤";
-  return "YouTube 播放器發生錯誤";
+/** IFrame API 的錯誤碼 → 說明（i18n key；呼叫端顯示時才翻譯，換語言時跟著換） */
+function errorReason(code: number): StrKey {
+  if (code === 100) return "media.err100";
+  if (code === 101 || code === 150) return "media.err101";
+  if (code === 153) return "media.err153";
+  if (code === 2) return "media.err2";
+  return "media.errOther";
 }
 
 /**
@@ -160,7 +161,8 @@ export function YoutubePlayer({
   videoId: string;
   title: string;
   store: PlayerStore;
-  onError: (reason: string) => void;
+  /** 無法播放的原因（i18n key） */
+  onError: (reason: StrKey) => void;
 }) {
   const hostRef = useRef<HTMLDivElement>(null);
   const onErrorRef = useRef(onError);
@@ -202,7 +204,7 @@ export function YoutubePlayer({
               const p = player;
               try {
                 // 讀屏軟體念 iframe 的 title（外層 div 的 aria-label 念不到）
-                p.getIframe().title = `YouTube 影片：${titleRef.current}`;
+                p.getIframe().title = tr("media.ytTitle", { title: titleRef.current });
               } catch {
                 /* 舊版 API 沒有 getIframe */
               }
@@ -250,7 +252,7 @@ export function YoutubePlayer({
           },
         });
       },
-      () => alive && onErrorRef.current("無法載入 YouTube 播放器（可能是網路問題，或被瀏覽器的擋廣告外掛擋掉）"),
+      () => alive && onErrorRef.current("media.loadFailed"),
     );
     return () => {
       alive = false;

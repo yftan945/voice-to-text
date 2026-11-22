@@ -1,16 +1,22 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { api, loadModels } from "../api";
+import { modelText } from "../hooks";
+import { useLang, useT } from "../i18n";
 import type { Dictionary, JobOptionsValue, ModelList } from "../types";
 import Tick from "./Tick";
 
 const MAX_SPEAKERS = 20;
 
-/** 在名稱的括號裡補註記：「精準（Breeze-ASR-25）」＋預設 →「精準（Breeze-ASR-25，預設）」；沒有括號就加一組。 */
-function withNotes(label: string, notes: string[]): string {
+/**
+ * 在名稱的括號裡補註記：「精準（Breeze-ASR-25）」＋預設 →「精準（Breeze-ASR-25，預設）」，
+ * 英文 "Accurate (Breeze-ASR-25)" → "Accurate (Breeze-ASR-25, default)"；沒有括號就加一組（括號跟著介面語言）。
+ */
+function withNotes(label: string, notes: string[], en: boolean): string {
   if (!notes.length) return label;
-  const n = notes.join("，");
-  return label.endsWith("）") ? `${label.slice(0, -1)}，${n}）` : `${label}（${n}）`;
+  if (label.endsWith("）")) return `${label.slice(0, -1)}，${notes.join("，")}）`;
+  if (label.endsWith(")")) return `${label.slice(0, -1)}, ${notes.join(", ")})`;
+  return en ? `${label} (${notes.join(", ")})` : `${label}（${notes.join("，")}）`;
 }
 
 /** 首頁（整批共用）與重新轉錄共用的選項：辨識模型、區分講者與人數、字典（可複選）。 */
@@ -23,6 +29,8 @@ export default function JobOptionsForm({
   onChange: (v: JobOptionsValue) => void;
   disabled?: boolean;
 }) {
+  const t = useT();
+  const lang = useLang();
   const id = useId();
   const [models, setModels] = useState<ModelList | null>(null);
   const [modelsError, setModelsError] = useState("");
@@ -37,17 +45,27 @@ export default function JobOptionsForm({
     onChange(next);
   };
 
+  // 模型清單：換語言時重新讀（後端依語言回傳名稱與說明）
   useEffect(() => {
+    let alive = true;
     loadModels().then(
       (m) => {
+        if (!alive) return;
         setModels(m);
+        setModelsError("");
         if (!valueRef.current.model) {
           const def = m.models.find((x) => x.id === m.default && x.available) ?? m.models.find((x) => x.available);
           if (def) patchLatest({ model: def.id });
         }
       },
-      (e) => setModelsError((e as Error).message),
+      (e) => alive && setModelsError((e as Error).message),
     );
+    return () => {
+      alive = false;
+    };
+  }, [lang]);
+
+  useEffect(() => {
     api.dictionaries().then(
       (list) => {
         setDicts(list);
@@ -72,13 +90,14 @@ export default function JobOptionsForm({
 
   return (
     <fieldset className="opts" disabled={disabled}>
-      <legend className="sr-only">轉錄設定</legend>
+      <legend className="sr-only">{t("opts.legend")}</legend>
       <div className="opt-model">
         <label className="lab" htmlFor={`${id}-model`}>
-          辨識模型{current && <span className="d">{current.description}</span>}
+          {t("opts.model")}
+          {current && <span className="d">{modelText(current).description}</span>}
         </label>
         {modelsError ? (
-          <p className="err">無法載入模型清單：{modelsError}</p>
+          <p className="err">{t("opts.modelsError", { msg: modelsError })}</p>
         ) : (
           <select
             id={`${id}-model`}
@@ -87,13 +106,17 @@ export default function JobOptionsForm({
             disabled={models === null}
             onChange={(e) => set({ model: e.target.value })}
           >
-            {models === null && <option value="">載入中…</option>}
+            {models === null && <option value="">{t("common.loading")}</option>}
             {models?.models.map((m) => (
               <option key={m.id} value={m.id} disabled={!m.available}>
-                {withNotes(m.label, [
-                  ...(m.id === models.default ? ["預設"] : []),
-                  ...(!m.available ? ["尚未安裝"] : []),
-                ])}
+                {withNotes(
+                  modelText(m).label,
+                  [
+                    ...(m.id === models.default ? [t("opts.default")] : []),
+                    ...(!m.available ? [t("opts.notInstalled")] : []),
+                  ],
+                  lang === "en",
+                )}
               </option>
             ))}
           </select>
@@ -102,21 +125,21 @@ export default function JobOptionsForm({
 
       <div className="opt-spk">
         <Tick on={value.diarize} onChange={(v) => set({ diarize: v })}>
-          區分講者
+          {t("opts.diarize")}
         </Tick>
         {value.diarize && (
           <label className="opt-num">
-            <span className="sr-only">講者人數</span>
+            <span className="sr-only">{t("opts.numSpeakers")}</span>
             <select
               className="field"
               value={value.numSpeakers === null ? "auto" : String(value.numSpeakers)}
               onChange={(e) => set({ numSpeakers: e.target.value === "auto" ? null : Number(e.target.value) })}
-              aria-label="講者人數"
+              aria-label={t("opts.numSpeakers")}
             >
-              <option value="auto">自動判斷人數</option>
+              <option value="auto">{t("opts.autoCount")}</option>
               {Array.from({ length: MAX_SPEAKERS }, (_, k) => k + 1).map((n) => (
                 <option key={n} value={n}>
-                  {n} 人
+                  {t("opts.nPeople", { n })}
                 </option>
               ))}
             </select>
@@ -126,24 +149,25 @@ export default function JobOptionsForm({
 
       <div className="opt-dict" role="group" aria-labelledby={`${id}-dict`}>
         <span className="lab" id={`${id}-dict`}>
-          字典<span className="d">可複選；辨識前當提示詞，辨識後自動替換誤聽</span>
+          {t("opts.dict")}
+          <span className="d">{t("opts.dictHint")}</span>
         </span>
         {dictsError ? (
-          <p className="err">無法載入字典：{dictsError}</p>
+          <p className="err">{t("opts.dictsError", { msg: dictsError })}</p>
         ) : dicts === null ? (
-          <p className="help">載入中…</p>
+          <p className="help">{t("common.loading")}</p>
         ) : dicts.length === 0 ? (
           <p className="help">
-            還沒有字典。可以到<Link to="/dictionaries">字典</Link>新增常用的專有名詞。
+            {t("opts.noDicts.before")}
+            <Link to="/dictionaries">{t("opts.noDicts.link")}</Link>
+            {t("opts.noDicts.after")}
           </p>
         ) : (
           <div className="opt-dicts">
             {dicts.map((d) => (
               <Tick key={d.id} on={value.dictionaryIds.includes(d.id)} onChange={() => toggleDict(d.id)}>
                 {d.name}
-                <small className="num">
-                  {d.term_count} 詞，{d.rule_count} 條替換
-                </small>
+                <small className="num">{t("opts.dictCounts", { terms: d.term_count, rules: d.rule_count })}</small>
               </Tick>
             ))}
           </div>

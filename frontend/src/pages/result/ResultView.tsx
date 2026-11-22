@@ -5,6 +5,7 @@ import { MenuButton, type MenuItem } from "../../components/Menu";
 import { ConfirmModal, PromptModal } from "../../components/Modal";
 import SpeakerBand from "../../components/SpeakerBand";
 import { useToast } from "../../components/Toast";
+import { useT, type StrKey } from "../../i18n";
 import type { PlayerStore } from "../../lib/player";
 import { mergeRuns, segmentIndexAt, speakerLabels, speakerName, speakerStats } from "../../lib/speakers";
 import type { Dictionary, EditOp, Job, TranscriptPayload } from "../../types";
@@ -28,7 +29,7 @@ function skipTo(e: React.MouseEvent, selector: string) {
 }
 
 /** 這筆任務能用什麼播放：YouTube 影片（可嵌入時）或伺服器保留的音訊。 */
-export function mediaChoice(job: Job, mode: MediaMode, videoError: string | null) {
+export function mediaChoice(job: Job, mode: MediaMode, videoError: StrKey | null) {
   const canPlay = job.has_audio && job.has_playback;
   const videoId = job.source === "youtube" ? job.video_id : null;
   const videoOk = !!videoId && !videoError;
@@ -69,8 +70,9 @@ export default function ResultView({
   isMobile: boolean;
   store: PlayerStore;
   mode: MediaMode;
-  videoError: string | null;
-  onVideoError: (reason: string) => void;
+  /** 影片無法播放的原因（i18n key） */
+  videoError: StrKey | null;
+  onVideoError: (reason: StrKey) => void;
   onDirtyChange: (dirty: boolean) => void;
   /** 伺服器回 409（任務排隊或重新轉錄中，不能編輯）：重新讀取任務、進入唯讀 */
   onBusy: () => void;
@@ -79,6 +81,7 @@ export default function ResultView({
   /** 手機：上拉播放面板標題列的「⋯」選單（和結果頁標題列的「更多動作」同一份） */
   moreItems?: () => MenuItem[];
 }) {
+  const tx = useT();
   const t = payload.current;
   const toast = useToast();
   const [error, setError] = useState("");
@@ -186,12 +189,12 @@ export default function ResultView({
   return (
     <>
       <div className="r-main">
-        <nav className="skip-links" aria-label="跳過逐字稿">
+        <nav className="skip-links" aria-label={tx("result.skip")}>
           <a href="#player" onClick={(e) => skipTo(e, "#player")}>
-            跳到播放器
+            {tx("result.skipPlayer")}
           </a>
           <a href={isMobile ? "#player" : "#speakers"} onClick={(e) => skipTo(e, isMobile ? "#player" : "#speakers")}>
-            跳到講者清單
+            {tx("result.skipSpeakers")}
           </a>
         </nav>
         {top}
@@ -209,11 +212,12 @@ export default function ResultView({
         )}
         {media.videoId && videoError && (
           <p className="note warn-note" role="status">
-            YouTube 影片無法在這裡播放：{videoError}。{media.canPlay ? "已改用伺服器保留的音訊播放。" : "音檔也已刪除，無法播放。"}
+            {tx("result.ytError", { reason: tx(videoError) })}
+            {media.canPlay ? tx("result.ytFallback") : tx("result.ytNoAudio")}
           </p>
         )}
-        {media.useAudio && audioError && <p className="note warn-note">音檔無法播放（可能是格式或網路問題）。</p>}
-        {!media.canSeek && !media.videoId && <p className="note">音檔已刪除，只能閱讀與編輯逐字稿。</p>}
+        {media.useAudio && audioError && <p className="note warn-note">{tx("result.audioError")}</p>}
+        {!media.canSeek && !media.videoId && <p className="note">{tx("result.audioDeleted")}</p>}
 
         <div className="band-wrap">
           <SpeakerBand
@@ -228,16 +232,14 @@ export default function ResultView({
         </div>
         {!isMobile && (
           <p className="hint">
-            {readOnly
-              ? "重新轉錄中，完成前不能編輯。"
-              : "點泡泡從那裡播放；滑過泡泡出現「⋯」，或按右鍵，可以編輯文字、換講者。鍵盤：↑↓ 切換泡泡、Shift+F10 開選單。"}
+            {readOnly ? tx("result.readOnly") : tx("result.hint")}
           </p>
         )}
         {isMobile && pressHint && !readOnly && (
           <p className="hint press-hint" role="status">
-            <span>長按泡泡可以編輯文字、換講者。</span>
+            <span>{tx("result.pressHint")}</span>
             <button type="button" className="tbtn ink" onClick={() => setPressHint(false)}>
-              知道了
+              {tx("result.gotIt")}
             </button>
           </p>
         )}
@@ -257,7 +259,7 @@ export default function ResultView({
         />
       </div>
 
-      <aside className={`r-side${media.useVideo ? " has-video" : ""}`} aria-label="影片與講者">
+      <aside className={`r-side${media.useVideo ? " has-video" : ""}`} aria-label={tx("result.side")}>
         {media.useVideo && media.videoId && (
           <div className={`video-box${isMobile ? " floating" : ""}${isMobile && videoTucked ? " tucked" : ""}`}>
             <YoutubePlayer
@@ -271,10 +273,10 @@ export default function ResultView({
                 type="button"
                 className="video-tuck"
                 onClick={() => setVideoTucked((v) => !v)}
-                aria-label={videoTucked ? "顯示影片" : "收合影片"}
+                aria-label={videoTucked ? tx("result.showVideo") : tx("result.tuckVideo")}
                 aria-expanded={!videoTucked}
               >
-                {videoTucked ? "影片" : "收合"}
+                {videoTucked ? tx("result.videoShort") : tx("result.tuck")}
               </button>
             )}
           </div>
@@ -282,12 +284,10 @@ export default function ResultView({
         {!isMobile && (
           <div className="side-speakers">
             <h2 id="speakers" tabIndex={-1}>
-              講者
+              {tx("result.speakers")}
             </h2>
             {speakers}
-            {labels.length > 0 && (
-              <p className="side-note">改名會套用到這位講者的每一句。存成聲紋後，之後的錄音會自動認出這位講者。</p>
-            )}
+            {labels.length > 0 && <p className="side-note">{tx("result.sideNote")}</p>}
           </div>
         )}
       </aside>
@@ -306,7 +306,7 @@ export default function ResultView({
           speakerAt={speakerAt}
           menu={
             moreItems && (
-              <MenuButton className="icon-btn pmore" items={moreItems} aria-label="更多動作">
+              <MenuButton className="icon-btn pmore" items={moreItems} aria-label={tx("job.more")}>
                 <Icon name="more" />
               </MenuButton>
             )
@@ -320,16 +320,16 @@ export default function ResultView({
 
       {voiceprintFor && (
         <PromptModal
-          title={voiceprintFor.voiceprintId !== null ? "更新聲紋" : "存成聲紋"}
-          label="名稱"
+          title={voiceprintFor.voiceprintId !== null ? tx("vpSave.updateTitle") : tx("vpSave.title")}
+          label={tx("common.name")}
           initial={t.speakers[voiceprintFor.label]?.name ?? ""}
           placeholder={speakerName(t, voiceprintFor.label)}
-          confirmLabel={voiceprintFor.voiceprintId !== null ? "更新" : "存入聲紋庫"}
+          confirmLabel={voiceprintFor.voiceprintId !== null ? tx("vpSave.update") : tx("vpSave.save")}
           description={
             <p>
               {voiceprintFor.voiceprintId !== null
-                ? `用這份錄音裡「${speakerName(t, voiceprintFor.label)}」的聲音更新聲紋庫裡對應的那一筆（不會新增一筆）。`
-                : `把「${speakerName(t, voiceprintFor.label)}」的聲音存進聲紋庫，之後轉錄會自動認出這個人。`}
+                ? tx("vpSave.updateMsg", { name: speakerName(t, voiceprintFor.label) })
+                : tx("vpSave.saveMsg", { name: speakerName(t, voiceprintFor.label) })}
             </p>
           }
           onClose={() => setVoiceprintFor(null)}
@@ -348,21 +348,26 @@ export default function ResultView({
             }
             onChange(r);
             setVoiceprintFor(null);
-            toast(r.voiceprint_updated ? `已更新聲紋：${name}` : `已存入聲紋庫：${name}`);
+            toast(r.voiceprint_updated ? tx("vpSave.updated", { name }) : tx("vpSave.saved", { name }));
           }}
         />
       )}
 
       {merge && (
         <ConfirmModal
-          title="合併講者"
-          message={`把「${speakerName(t, merge.source)}」的 ${stats[merge.source]?.count ?? 0} 段併到「${speakerName(t, merge.target)}」？合併後「${speakerName(t, merge.source)}」會從講者清單消失，只能用「還原原始結果」整份復原。`}
-          confirmLabel="合併"
+          title={tx("merge.title")}
+          message={tx("merge.msg", {
+            src: speakerName(t, merge.source),
+            n: stats[merge.source]?.count ?? 0,
+            dst: speakerName(t, merge.target),
+          })}
+          confirmLabel={tx("merge.confirm")}
           danger
           onClose={() => setMerge(null)}
           onConfirm={async () => {
             const target = speakerName(t, merge.target);
-            if (await edit({ op: "merge_speakers", source: merge.source, target: merge.target })) toast(`已合併到「${target}」`);
+            if (await edit({ op: "merge_speakers", source: merge.source, target: merge.target }))
+              toast(tx("merge.done", { name: target }));
             setMerge(null);
           }}
         />

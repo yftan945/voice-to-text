@@ -5,6 +5,7 @@ import { popInert, pushInert } from "../../components/Modal";
 import SpeakerBand from "../../components/SpeakerBand";
 import Tick from "../../components/Tick";
 import { tc } from "../../format";
+import { useT } from "../../i18n";
 import { prefersReducedMotion } from "../../hooks";
 import { usePlayer, usePlayerStore } from "../../lib/player";
 import { avatarChar, colorClass, segmentIndexAt, speakerName, type Run } from "../../lib/speakers";
@@ -16,6 +17,7 @@ const PANEL_SPEEDS = [1, 1.25, 1.5, 2];
 
 /** 目前（或最近一段）講者的頭像＋名字＋時間。 */
 function NowSpeaker({ t, labels, duration, big = false }: { t: Transcript; labels: string[]; duration: number; big?: boolean }) {
+  const tx = useT();
   const idx = usePlayer((s) => {
     const i = segmentIndexAt(t.segments, s.time);
     if (i >= 0) return i;
@@ -33,7 +35,7 @@ function NowSpeaker({ t, labels, duration, big = false }: { t: Transcript; label
         {seg?.speaker ? avatarChar(t.speakers[seg.speaker]?.name || seg.speaker, li) : "▶"}
       </span>
       <span className="now-txt">
-        <b>{seg ? speakerName(t, seg.speaker) : "逐字稿"}</b>
+        <b>{seg ? speakerName(t, seg.speaker) : tx("panel.transcript")}</b>
         <span className="num">
           {tc(sec)} / {tc(duration)}
         </span>
@@ -72,6 +74,7 @@ export default function PlayerPanel({
   menu?: ReactNode;
   children: ReactNode;
 }) {
+  const tx = useT();
   const store = usePlayerStore();
   const playing = usePlayer((s) => s.playing);
   const ready = usePlayer((s) => s.ready);
@@ -258,7 +261,7 @@ export default function PlayerPanel({
         ref={panelRef}
         id="player"
         tabIndex={-1}
-        aria-label="播放器"
+        aria-label={tx("player.label")}
         role={expanded ? "dialog" : undefined}
         aria-modal={expanded ? true : undefined}
         onPointerDownCapture={() => {
@@ -286,7 +289,7 @@ export default function PlayerPanel({
               className="mini-info"
               aria-expanded={expanded}
               aria-controls="panel-body"
-              aria-label="展開播放面板"
+              aria-label={tx("panel.expand")}
               onKeyDown={(e) => {
                 if (e.key === "Enter" || e.key === " ") {
                   e.preventDefault();
@@ -301,7 +304,7 @@ export default function PlayerPanel({
               className="play-btn"
               disabled={!usable}
               onClick={() => store.toggle()}
-              aria-label={playing ? "暫停" : "播放"}
+              aria-label={playing ? tx("player.pause") : tx("player.play")}
             >
               <Icon name={playing ? "pause" : "play"} size={24} />
             </button>
@@ -313,7 +316,7 @@ export default function PlayerPanel({
           <button
             type="button"
             className="icon-btn pclose"
-            aria-label="收起播放面板"
+            aria-label={tx("panel.collapse")}
             onClick={() => go(false)}
           >
             <Icon name="chevD" size={22} />
@@ -324,9 +327,9 @@ export default function PlayerPanel({
           <div className="panel-band">
             <SpeakerBand runs={runs} duration={duration} player={store} seekable={usable} speakerAt={speakerAt} ticks={false} />
           </div>
-          {!canSeek && <p className="help">音檔已刪除，無法播放。</p>}
+          {!canSeek && <p className="help">{tx("player.noAudio")}</p>}
           <div className="transport">
-            <button type="button" className="icon-btn skip" disabled={!usable} onClick={() => store.seek(store.state.time - 15)} aria-label="倒退 15 秒">
+            <button type="button" className="icon-btn skip" disabled={!usable} onClick={() => store.seek(store.state.time - 15)} aria-label={tx("panel.back15")}>
               <Icon name="back15" size={32} />
             </button>
             <button
@@ -335,16 +338,16 @@ export default function PlayerPanel({
               className="play-btn big"
               disabled={!usable}
               onClick={() => store.toggle()}
-              aria-label={playing ? "暫停" : "播放"}
+              aria-label={playing ? tx("player.pause") : tx("player.play")}
             >
               <Icon name={playing ? "pause" : "play"} size={32} />
             </button>
-            <button type="button" className="icon-btn skip" disabled={!usable} onClick={() => store.seek(store.state.time + 15)} aria-label="快轉 15 秒">
+            <button type="button" className="icon-btn skip" disabled={!usable} onClick={() => store.seek(store.state.time + 15)} aria-label={tx("panel.fwd15")}>
               <Icon name="fwd15" size={32} />
             </button>
           </div>
 
-          <h3 id="speed-h">播放速度</h3>
+          <h3 id="speed-h">{tx("panel.speed")}</h3>
           <div className="speed-ctl" role="radiogroup" aria-labelledby="speed-h">
             {PANEL_SPEEDS.map((r) => (
               <button
@@ -361,15 +364,16 @@ export default function PlayerPanel({
             ))}
           </div>
           <Tick on={follow} onChange={onFollow} disabled={!canSeek} className="panel-follow">
-            跟隨播放<small>播放時自動捲到正在說的那一句</small>
+            <span className="pf-label">{tx("job.follow")}</span>
+            <small>{tx("panel.followHint")}</small>
           </Tick>
 
           {(labels.length > 1 || only !== null) && (
             <>
-              <h3>只聽某位講者</h3>
+              <h3>{tx("panel.only")}</h3>
               <div className="chips">
                 <button type="button" className="chip all" aria-pressed={only === null} onClick={() => store.setOnly(null)}>
-                  全部講者
+                  {tx("panel.allSpeakers")}
                 </button>
                 {labels.map((l, i) => (
                   <button
@@ -390,7 +394,7 @@ export default function PlayerPanel({
             </>
           )}
 
-          <h3>講者</h3>
+          <h3>{tx("result.speakers")}</h3>
           {children}
         </div>
       </section>

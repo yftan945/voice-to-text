@@ -59,8 +59,15 @@ svg.i.fill { fill: currentColor; stroke: none; }
 .nav a.link:hover { color: var(--ink); }
 .nav a.link[aria-current="page"] { color: var(--ink); border-bottom-color: var(--ink); font-weight: 600; }
 /* flex: none：窄寬度時不要被連結擠扁（觸控目標維持 --tap，手機 44px） */
-.nav .theme-btn { flex: none; min-width: var(--tap); margin-right: -8px; }
+/* 外觀與語言兩顆按鈕靠在一起成一組（觸控範圍各自 --tap，手機 44px）；flex: none：窄寬度時不要被連結擠扁 */
+.nav-tools { display: flex; flex: none; align-items: center; margin-right: -8px; }
+.nav-tools .icon-btn { flex: none; min-width: var(--tap); }
+.nav .lang-btn { font: 600 13.5px/1 var(--sans); letter-spacing: .03em; color: var(--muted); white-space: nowrap; }
+.nav .lang-btn:hover { color: var(--ink); }
+.nav .lang-btn:lang(zh) { font-size: 15px; letter-spacing: 0; }
 .nav .brand-short { display: none; }
+/* 英文的頁名較長：窄螢幕改顯示簡稱（見 App.tsx 的 NAV） */
+.nav .l-short { display: none; }
 /* 「任務」旁的進行中數量（排隊中＋處理中）；讀屏軟體念連結的 aria-label，這裡 aria-hidden */
 .nav-badge {
   display: inline-grid; place-items: center; min-width: 18px; height: 18px; margin-left: 5px; padding: 0 5px;
@@ -330,6 +337,36 @@ label.choice input { margin-top: 5px; accent-color: var(--ink); }
 .steps .names { display: grid; grid-template-columns: repeat(var(--n, 5), 1fr); gap: 3px; margin-top: 5px; font-size: 12.5px; color: var(--muted); }
 .steps .names span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .steps .names span.cur { color: var(--ink); font-weight: 600; }
+/*
+ * 窄的時候步驟名稱放不下一格：只顯示目前步驟的名稱，從它那一格往右（前半段）或往左（後半段）延伸（--col、--align 見 StepBar.tsx）。
+ * 用 .steps 自己的寬度判斷；門檻＝步驟數 × 最長名稱＋格間距（3px），再留一點餘裕給其他系統字型。
+ * 最長名稱（12.5px 粗體實測）：英文 Transcribe 約 66px，中文「講者辨識」約 50px。步驟數 4–6。
+ */
+.steps { container: steps / inline-size; }
+@container steps (max-width: 440px) {
+  html:lang(en) .steps[data-n="6"] .names span:not(.cur) { display: none; }
+  html:lang(en) .steps[data-n="6"] .names span.cur { grid-column: var(--col); text-align: var(--align); }
+}
+@container steps (max-width: 365px) {
+  html:lang(en) .steps[data-n="5"] .names span:not(.cur) { display: none; }
+  html:lang(en) .steps[data-n="5"] .names span.cur { grid-column: var(--col); text-align: var(--align); }
+}
+@container steps (max-width: 325px) {
+  .steps[data-n="6"] .names span:not(.cur) { display: none; }
+  .steps[data-n="6"] .names span.cur { grid-column: var(--col); text-align: var(--align); }
+}
+@container steps (max-width: 290px) {
+  html:lang(en) .steps[data-n="4"] .names span:not(.cur) { display: none; }
+  html:lang(en) .steps[data-n="4"] .names span.cur { grid-column: var(--col); text-align: var(--align); }
+}
+@container steps (max-width: 270px) {
+  .steps[data-n="5"] .names span:not(.cur) { display: none; }
+  .steps[data-n="5"] .names span.cur { grid-column: var(--col); text-align: var(--align); }
+}
+@container steps (max-width: 215px) {
+  .steps[data-n="4"] .names span:not(.cur) { display: none; }
+  .steps[data-n="4"] .names span.cur { grid-column: var(--col); text-align: var(--align); }
+}
 
 /* 細進度條（上傳） */
 .bar { height: 4px; background: var(--rule); border-radius: 1px; overflow: hidden; }
@@ -346,6 +383,8 @@ label.choice input { margin-top: 5px; accent-color: var(--ink); }
   .nav { gap: 12px; }
   .nav .brand { font-size: 16px; }
   .nav a.link { justify-content: center; min-width: 44px; padding: 0 5px; }
+  .nav .l-full { display: none; }
+  .nav .l-short { display: inline; }
   .tbtn { min-height: 44px; padding: 4px 6px; font-size: 14px; }
   .menu .mi { min-height: 44px; }
   .field { min-height: 44px; font-size: 16px; }
@@ -360,19 +399,34 @@ label.choice input { margin-top: 5px; accent-color: var(--ink); }
   .toast { bottom: calc(var(--toast-b, 86px) + env(safe-area-inset-bottom)); }
 }
 
-/* 手機窄寬度（390px 等）：品牌＋4 個連結＋徽章＋外觀按鈕要在一行放得下，
-   完整品牌名稱太寬，改成只顯示「語音」並縮小間距（連結本身維持 44px 以上的觸控範圍，間距縮了看起來仍分得開） */
-@media (max-width: 440px) {
-  .nav { gap: 10px; }
+/* 手機窄寬度：品牌＋4 個連結＋徽章＋外觀與語言兩顆按鈕要在一行放得下。
+   先把完整品牌名稱換成簡稱（中文「語音」；英文沒有簡稱，維持 Voice to Text），再窄就整個收起品牌（「錄音」連結同樣回首頁），
+   並縮小間距（連結本身維持 44px 以上的觸控範圍，間距縮了看起來仍分得開）。
+   英文的連結較長，≤560px 先縮小字級與間距，留位置給 Voice to Text。
+   收起品牌的寬度是實際量出來的（含兩位數徽章）：英文品牌約 110px，≥496px 才放得下；
+   中文「語音」約 33px，≥406px 放得下（390／375／360 放不下，會把連結擠扁） */
+@media (max-width: 560px) {
   .nav .brand-full { display: none; }
   .nav .brand-short { display: inline; }
+  html:lang(en) .nav { gap: 10px; }
+  html:lang(en) .nav a.link { font-size: 14px; }
+}
+@media (max-width: 495px) {
+  html:lang(en) .nav .brand { display: none; }
+}
+@media (max-width: 440px) {
+  .nav { gap: 10px; }
+}
+@media (max-width: 405px) {
+  .nav .brand { display: none; }
 }
 @media (max-width: 374px) {
   .nav { gap: 6px; }
 }
-/* 320px 等級：再縮間距與左右留白，4 個連結＋兩位數徽章＋外觀按鈕仍在一行 */
+/* 320px 等級：再縮間距、左右留白與連結內距，4 個連結＋兩位數徽章＋兩顆按鈕仍在一行 */
 @media (max-width: 359px) {
   .nav { gap: 2px; padding-left: 12px; padding-right: 12px; }
+  .nav a.link { padding: 0 2px; }
   .nav-badge { margin-left: 4px; }
 }
 

@@ -19,26 +19,59 @@ import copy
 import re
 from typing import Any
 
+from . import i18n
+from .i18n import DEFAULT_LANG, LocalizedError
 
-class EditError(ValueError):
-    pass
+
+class EditError(LocalizedError, ValueError):
+    """編輯參數不對；msg 可以直接顯示給使用者（見 i18n 的 transcript.*）。"""
 
 
 _AUTO_LABEL_RE = re.compile(r"^SPEAKER_(\d+)$")
 
 
-def default_speaker_name(label: str) -> str:
-    """沒取名的講者顯示的名字：辨識出來的 SPEAKER_xx 顯示成「講者 N」（N＝代號數字＋1，和結果頁頭像上的數字一致）；
-    其他代號（手動新增的 MANUAL_xx）照原樣。與前端 lib/speakers.ts 的 speakerName() 一致。"""
+def default_speaker_name(label: str, lang: str = DEFAULT_LANG) -> str:
+    """沒取名的講者顯示的名字：辨識出來的 SPEAKER_xx 顯示成「講者 N」／「Speaker N」（N＝代號數字＋1，
+    和結果頁頭像上的數字一致）；其他代號（手動新增的 MANUAL_xx）照原樣。與前端 lib/speakers.ts 的 speakerName() 一致。"""
     m = _AUTO_LABEL_RE.match(label)
-    return f"講者 {int(m.group(1)) + 1}" if m else label
+    return i18n.render("speaker.default", {"n": int(m.group(1)) + 1}, lang) if m else label
 
 
-def display_name(transcript: dict[str, Any], label: str | None) -> str:
+def display_name(transcript: dict[str, Any], label: str | None, lang: str = DEFAULT_LANG) -> str:
     if not label:
         return ""
     info = (transcript.get("speakers") or {}).get(label) or {}
-    return info.get("name") or default_speaker_name(label)
+    return info.get("name") or default_speaker_name(label, lang)
+
+
+def localize_texts(t: dict[str, Any], lang: str) -> dict[str, Any]:
+    """逐字稿裡給使用者看的文字（warnings、講者辨識失敗原因、文字來源說明）依語言 render。
+
+    回傳淺層複本，不改原本的 dict。舊資料存的是中文字串，照原樣。逐字稿內容本身不翻譯。
+    """
+    out = dict(t)
+    if "warnings" in out:
+        out["warnings"] = i18n.localize_list(out.get("warnings"), lang)
+    diar = out.get("diarization")
+    if isinstance(diar, dict) and diar.get("error") is not None:
+        out["diarization"] = {**diar, "error": i18n.localize(diar["error"], lang)}
+    ts = out.get("text_source")
+    if isinstance(ts, dict) and "label" in ts:
+        out["text_source"] = {**ts, "label": i18n.localize(ts["label"], lang)}
+    return out
+
+
+def localize_summary(summary: dict[str, Any] | None, lang: str) -> dict[str, Any] | None:
+    """講者摘要（jobs.speaker_summary）存的是 zh-TW 的顯示名稱：沒取名的「講者 N」換成該語言的預設名稱。"""
+    if not summary or lang == DEFAULT_LANG or not isinstance(summary.get("speakers"), list):
+        return summary
+    speakers = []
+    for s in summary["speakers"]:
+        label = s.get("label") if isinstance(s, dict) else None
+        if label and s.get("name") == default_speaker_name(label):
+            s = {**s, "name": default_speaker_name(label, lang)}
+        speakers.append(s)
+    return {**summary, "speakers": speakers}
 
 
 def make_edited(original: dict[str, Any]) -> dict[str, Any]:
@@ -51,7 +84,7 @@ def _segment(t: dict[str, Any], seg_id: int) -> dict[str, Any]:
     for seg in t.get("segments", []):
         if seg.get("id") == seg_id:
             return seg
-    raise EditError(f"找不到段落 {seg_id}")
+    raise EditError("transcript.segment.not_found", id=seg_id)
 
 
 # 手動新增的講者用不同的前綴，不會跟辨識出來的 SPEAKER_xx（以及它們的聲紋）撞名
@@ -96,7 +129,7 @@ def voiceprint_labels(original: dict[str, Any], current: dict[str, Any]) -> list
 def rename_speaker(t: dict[str, Any], label: str, name: str) -> None:
     speakers = t.setdefault("speakers", {})
     if label not in speakers:
-        raise EditError(f"找不到講者 {label}")
+        raise EditError("transcript.speaker.not_found", label=label)
     name = (name or "").strip()
     speakers[label]["name"] = name or None
 
@@ -115,11 +148,11 @@ def set_segment_speaker(
     speakers = t.setdefault("speakers", {})
     if label is None:
         if not (new_name or "").strip():
-            raise EditError("要指定講者或輸入新講者名稱")
+            raise EditError("transcript.speaker.required")
         label = _next_label(t, reserved)
         speakers[label] = {"name": new_name.strip(), "voiceprint_id": None, "similarity": None}
     elif label not in speakers:
-        raise EditError(f"找不到講者 {label}")
+        raise EditError("transcript.speaker.not_found", label=label)
     seg["speaker"] = label
     return label
 
@@ -128,9 +161,9 @@ def merge_speakers(t: dict[str, Any], source: str, target: str) -> None:
     """把 source 講者的所有段落改成 target，並移除 source。"""
     speakers = t.setdefault("speakers", {})
     if source == target:
-        raise EditError("來源與目標講者相同")
+        raise EditError("transcript.merge.same")
     if source not in speakers or target not in speakers:
-        raise EditError("找不到要合併的講者")
+        raise EditError("transcript.merge.not_found")
     for seg in t.get("segments", []):
         if seg.get("speaker") == source:
             seg["speaker"] = target
@@ -160,7 +193,7 @@ def apply_edit(t: dict[str, Any], op: dict[str, Any], reserved: set[str] | None 
     elif kind == "merge_speakers":
         merge_speakers(t, str(op["source"]), str(op["target"]))
     else:
-        raise EditError(f"不支援的編輯操作：{kind}")
+        raise EditError("transcript.edit.unsupported", op=kind)
     return t
 
 

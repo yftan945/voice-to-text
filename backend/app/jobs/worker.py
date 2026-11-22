@@ -9,12 +9,13 @@ from typing import Any
 
 from .. import dictionary_store, storage, voiceprint
 from ..config import settings
+from ..i18n import LocalizedError, Message, has, is_message, message_of, msg
 from ..pipeline import captions as captions_mod
 from ..pipeline import runner, youtube_source
 from ..pipeline.backend import Backend
 from ..pipeline.errors import Canceled, GpuBusy
 from ..pipeline.models import free_gpu_memory, load_timer, reset_load_timer
-from ..youtube import YouTubeError, language_name
+from ..youtube import YouTubeError, language_param
 from . import estimate, queue
 
 log = logging.getLogger(__name__)
@@ -22,7 +23,19 @@ log = logging.getLogger(__name__)
 # 進度寫入 DB 的最小間隔（秒），避免轉錄時太頻繁寫入
 PROGRESS_WRITE_INTERVAL = 0.5
 # 沒有預期到的錯誤讓任務停在 running 時，標成失敗用的訊息
-UNEXPECTED_ERROR = "處理時發生未預期的錯誤，請重新轉錄"
+UNEXPECTED_ERROR = msg("job.error.unexpected")
+STAGE_FAILED = msg("stage.failed")
+STAGE_CANCELED = msg("stage.canceled")
+STAGE_DONE = msg("stage.done")
+
+
+def _caption_reason(warning: Message | str) -> Message | str:
+    """字幕不能用的警告（「…，已改用模型轉錄。」）換成不含「改用模型轉錄」的原因（模型也不能用時組失敗訊息）。"""
+    if is_message(warning):
+        code = warning["code"]  # type: ignore[index]
+        reason_code = f"{code}.reason"
+        return msg(reason_code, **(warning.get("params") or {})) if has(reason_code) else warning  # type: ignore[union-attr]
+    return re.sub(r"[，,]?(已)?改用模型轉錄。?$", "", str(warning))
 
 
 class Worker:
@@ -80,7 +93,7 @@ class Worker:
             try:
                 current = queue.get(job_id)
                 if current is not None and current["status"] == "running":
-                    queue.update(job_id, status="failed", stage="失敗", finished_at=time.time(),
+                    queue.update(job_id, status="failed", stage=STAGE_FAILED, finished_at=time.time(),
                                  error=UNEXPECTED_ERROR, cancel_requested=False)
             except Exception:  # noqa: BLE001
                 log.exception("任務 %s 無法標成失敗", job_id)
@@ -91,19 +104,19 @@ class Worker:
         is_youtube = job.get("source") == "youtube"
         # 走字幕路線不需要 Whisper：要用字幕的 YouTube 任務等確定要轉錄時才檢查模型
         if option is None or (not option.available() and not youtube_source.wanted_caption(job)):
-            queue.update(job_id, status="failed", stage="失敗", finished_at=time.time(),
-                         error=f"模型 {job['model']} 無法使用")
+            queue.update(job_id, status="failed", stage=STAGE_FAILED, finished_at=time.time(),
+                         error=msg("job.error.model_unavailable", model=job["model"]))
             return
         source = storage.original_path(job)
         # YouTube 來源的音訊由下面的下載步驟準備（第一次處理、或上次下載失敗時還沒有檔案）
         if not job["has_audio"] or (not is_youtube and not source.exists()):
-            queue.update(job_id, status="failed", stage="失敗", finished_at=time.time(),
-                         error="音檔已刪除，無法轉錄")
+            queue.update(job_id, status="failed", stage=STAGE_FAILED, finished_at=time.time(),
+                         error=msg("job.error.audio_deleted"))
             return
 
         last_write = [0.0]
 
-        def report(key: str, label: str, progress: float) -> None:
+        def report(key: str, label: Message, progress: float) -> None:
             now = time.monotonic()
             if now - last_write[0] >= PROGRESS_WRITE_INTERVAL or progress >= 1.0:
                 last_write[0] = now
@@ -120,7 +133,7 @@ class Worker:
         share = 0.0
         captions: list[dict[str, Any]] | None = None
         caption_lang: str | None = None
-        prep_warnings: list[str] = []
+        prep_warnings: list[Message | str] = []
         download_seconds: float | None = None
         network_seconds = 0.0
         source_info: dict[str, Any] | None = None
@@ -136,12 +149,12 @@ class Worker:
                     max_bytes=settings.max_upload_mb * 1024 * 1024,
                 )
             except Canceled:
-                queue.update(job_id, status="canceled", stage="已取消", finished_at=time.time(),
+                queue.update(job_id, status="canceled", stage=STAGE_CANCELED, finished_at=time.time(),
                              cancel_requested=False)
                 return
             except YouTubeError as e:
                 log.warning("任務 %s YouTube 下載失敗（%s）：%s", job_id, e.code, e.message)
-                queue.update(job_id, status="failed", stage="失敗", finished_at=time.time(), error=e.message,
+                queue.update(job_id, status="failed", stage=STAGE_FAILED, finished_at=time.time(), error=e.msg,
                              cancel_requested=False)
                 return
             source = prep.audio_path
@@ -155,24 +168,24 @@ class Worker:
                 except Exception as e:  # noqa: BLE001
                     log.exception("解析字幕失敗")
                     captions = None
-                    prep_warnings.append(f"無法解析 YouTube 字幕，改用模型轉錄：{e}")
+                    prep_warnings.append(msg("youtube.captions.parse_failed", error=message_of(e)))
                 if captions is None and not prep_warnings:
-                    prep_warnings.append(
-                        f"YouTube 人工字幕（{language_name(caption_lang)}）沒有內容，改用模型轉錄。")
+                    prep_warnings.append(msg("youtube.captions.empty", language=language_param(caption_lang)))
             if captions is None:
                 caption_lang = None
                 if not option.available():
                     # 字幕不能用（下載失敗、沒有內容），要改用模型轉錄，但模型沒安裝
-                    reason = re.sub(r"[，,]?(已)?改用模型轉錄。?$", "", prep_warnings[0]) if prep_warnings else ""
-                    reason = f"{reason}，需要改用模型轉錄" if reason else "需要改用模型轉錄"
-                    queue.update(job_id, status="failed", stage="失敗", finished_at=time.time(),
-                                 error=f"模型 {job['model']} 無法使用（{reason}）", cancel_requested=False)
+                    reason = _caption_reason(prep_warnings[0]) if prep_warnings else ""
+                    error = (msg("job.error.model_needed_reason", model=job["model"], reason=reason) if reason
+                             else msg("job.error.model_needed", model=job["model"]))
+                    queue.update(job_id, status="failed", stage=STAGE_FAILED, finished_at=time.time(),
+                                 error=error, cancel_requested=False)
                     return
             job = queue.get(job_id) or job
             source_info = {"type": "youtube", "url": job.get("source_url"), "video_id": job.get("video_id"),
                            "title": job.get("yt_title"), "channel": job.get("yt_channel")}
 
-        def report_main(key: str, label: str, progress: float) -> None:
+        def report_main(key: str, label: Message, progress: float) -> None:
             report(key, label, share + (1.0 - share) * progress)
 
         inp = runner.JobInput(
@@ -192,16 +205,17 @@ class Worker:
         try:
             out = runner.run(inp, self.backend, report_main, check_cancel)
         except Canceled:
-            queue.update(job_id, status="canceled", stage="已取消", finished_at=time.time(),
+            queue.update(job_id, status="canceled", stage=STAGE_CANCELED, finished_at=time.time(),
                          cancel_requested=False)
             return
         except GpuBusy as e:
-            queue.update(job_id, status="failed", stage="失敗", finished_at=time.time(), error=str(e))
+            queue.update(job_id, status="failed", stage=STAGE_FAILED, finished_at=time.time(), error=e.msg)
             gpu_busy = True
         except Exception as e:  # noqa: BLE001
             log.exception("任務 %s 失敗", job_id)
-            queue.update(job_id, status="failed", stage="失敗", finished_at=time.time(),
-                         error=f"{type(e).__name__}: {e}"[:1000])
+            # 有翻譯的錯誤（音檔無法解碼等）存訊息；其他照原本的「例外名稱: 訊息」
+            error = e.msg if isinstance(e, LocalizedError) and is_message(e.msg) else f"{type(e).__name__}: {e}"[:1000]
+            queue.update(job_id, status="failed", stage=STAGE_FAILED, finished_at=time.time(), error=error)
             return
         if gpu_busy:
             # 離開 except 後（traceback 已釋放）再清一次 GPU 記憶體
@@ -217,7 +231,7 @@ class Worker:
             out.transcript["warnings"] = prep_warnings + list(out.transcript.get("warnings") or [])
         storage.save_original(job_id, out.transcript)
         fields: dict[str, Any] = {
-            "status": "done", "stage": "完成", "progress": 1.0, "finished_at": time.time(),
+            "status": "done", "stage": STAGE_DONE, "progress": 1.0, "finished_at": time.time(),
             "has_transcript": True, "warnings": out.transcript.get("warnings", []),
             "duration": out.duration, "cancel_requested": False,
             "process_seconds": round(max(0.0, elapsed - load_seconds - dl), 3),

@@ -10,12 +10,13 @@ import time
 
 import pytest
 
-from app import storage, youtube_cache
+from app import i18n, storage, youtube_cache
 from app import youtube as yt
 from app.jobs import queue
 from app.pipeline import captions, youtube_source, ytdlp
 
 # 共用 test_youtube 的 mock 與 fixture（client、backend）
+from fakes import zh
 from test_youtube import VID, VID2, VTT_ZH, FakeYtdlp, backend, client, create, make_info, run_next  # noqa: F401
 
 @pytest.fixture(autouse=True)
@@ -103,10 +104,10 @@ def test_download_progress_never_goes_backwards(data_dir, monkeypatch, caption_e
                                   max_bytes=10**9)
     values = [p for _, p in seen]
     assert values == sorted(values) and values[-1] == 1.0
-    labels = [label for label, _ in seen]
-    assert labels.index("下載字幕中") < labels.index("下載音訊中")
+    labels = [label["code"] for label, _ in seen]
+    assert labels.index("stage.downloading_captions") < labels.index("stage.downloading_audio")
     # 字幕只占前面一小段
-    assert max(p for label, p in seen if label == "下載字幕中") <= 0.05
+    assert max(p for label, p in seen if label["code"] == "stage.downloading_captions") <= 0.05
     assert (prep.caption_lang == "zh-TW") is (caption_error is None)
 
 
@@ -351,10 +352,12 @@ def test_unknown_error_masks_absolute_paths():
 
 
 def test_failure_reason():
-    assert youtube_source.failure_reason(RATE_LIMITED).startswith("HTTP 429")
+    assert zh(youtube_source.failure_reason(RATE_LIMITED)).startswith("HTTP 429")
     assert youtube_source.failure_reason(
         yt.classify_error("ERROR: unable to download video data: HTTP Error 404: Not Found")) == "HTTP 404"
-    assert youtube_source.failure_reason(yt.YouTubeError("network", "x", 502)) == "連線失敗"
+    assert zh(youtube_source.failure_reason(yt.YouTubeError("network", "x", 502))) == "連線失敗"
+    assert i18n.localize(youtube_source.failure_reason(yt.YouTubeError("network", "x", 502)), "en") == \
+        "connection failed"
 
 
 # ---- 10. 下載參數 ----
@@ -428,6 +431,25 @@ def test_caption_job_fails_clearly_when_fallback_needs_missing_model(client, mon
     assert "已改用" not in done["error"] and queue.get(job["id"])["status"] == "failed"
 
 
+def test_caption_parse_failure_with_missing_model_fails_clearly(client, monkeypatch, backend):
+    """字幕下載成功但解析失敗、要改用模型而模型沒安裝：失敗原因是 parse_failed.reason（不含「改用模型轉錄」）。"""
+    FakeYtdlp(monkeypatch, {VID: make_info(subs=["zh-TW"])})
+
+    def broken(path):
+        raise ValueError("bad cue")
+
+    monkeypatch.setattr(captions, "parse_file", broken)
+    job = client.post("/api/jobs/youtube", json={"video_id": VID, "model": "breeze-asr-25"}).json()
+    done = run_next(client)
+    assert done["status"] == "failed"
+    assert done["error"] == "模型 breeze-asr-25 無法使用（無法解析 YouTube 字幕：bad cue，需要改用模型轉錄）"
+    assert queue.get(job["id"])["error"]["params"]["reason"]["code"] == "youtube.captions.parse_failed.reason"
+    en = client.get(f"/api/jobs/{job['id']}?lang=en").json()["error"]
+    assert en == ("The breeze-asr-25 model isn't available, but this job needs it: "
+                  "couldn't parse the YouTube captions: bad cue.")
+    assert "transcribe" not in [c[0] for c in backend.calls]
+
+
 # ---- 8. 下載計時 ----
 
 
@@ -498,3 +520,43 @@ def test_ytdlp_version_failure_is_rate_limited(monkeypatch):
         [], 1, stdout="", stderr="boom"))
     assert ytdlp.version() is None and ytdlp.version() is None
     assert len(calls) == 1  # 60 秒內不重試
+
+
+# ---- 介面語言（en） ----
+
+
+def test_caption_fallback_warning_in_english(client, monkeypatch, backend):
+    FakeYtdlp(monkeypatch, {VID: make_info(subs=["zh-TW"])}, caption_error=RATE_LIMITED)
+    job = create(client)
+    run_next(client)
+    en = client.get(f"/api/jobs/{job['id']}?lang=en").json()
+    assert en["warnings"] == ["Downloading the YouTube manual captions (Traditional Chinese (Taiwan)) failed "
+                              "(HTTP 429, too many requests), so a model was used instead."]
+    t = client.get(f"/api/jobs/{job['id']}/transcript?lang=en").json()["current"]
+    assert t["warnings"] == en["warnings"]
+
+
+def test_missing_model_error_in_english(client, monkeypatch, backend):
+    FakeYtdlp(monkeypatch, {VID: make_info(subs=["zh-TW"])}, caption_error=RATE_LIMITED)
+    job = client.post("/api/jobs/youtube", json={"video_id": VID, "model": "breeze-asr-25"}).json()
+    run_next(client)
+    en = client.get(f"/api/jobs/{job['id']}?lang=en").json()
+    assert en["error"] == ("The breeze-asr-25 model isn't available, but this job needs it: downloading the "
+                           "YouTube manual captions (Traditional Chinese (Taiwan)) failed (HTTP 429, too many requests).")
+    assert en["stage"] == "Failed" and en["stage_code"] == "stage.failed"
+
+
+def test_youtube_errors_in_english(client, monkeypatch):
+    FakeYtdlp(monkeypatch, {VID: yt.classify_error("ERROR: Private video. Sign in"),
+                            VID2: make_info(VID2, live="is_live")})
+    r = client.get(f"/api/youtube/videos/{VID}?lang=en")
+    assert r.status_code == 422 and r.json()["code"] == "youtube.error.private"
+    assert r.json()["detail"].startswith("This is a private video")
+    assert client.get(f"/api/youtube/videos/{VID2}?lang=en").json()["error"].startswith(
+        "This livestream is still in progress")
+    # 建立後才變成私人影片：任務失敗原因也跟著語言
+    FakeYtdlp(monkeypatch, {VID: make_info()}, download_error=yt.classify_error("ERROR: Private video"))
+    youtube_cache.clear()
+    job = create(client)
+    run_next(client)
+    assert client.get(f"/api/jobs/{job['id']}?lang=en").json()["error"].startswith("This is a private video")

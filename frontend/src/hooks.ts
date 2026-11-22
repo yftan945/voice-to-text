@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { useBlocker } from "react-router-dom";
 import { loadModels } from "./api";
-import type { ModelList } from "./types";
+import { hasMsg, tr, useLang } from "./i18n";
+import type { ModelInfo, ModelList } from "./types";
 
 /** 有未儲存的內容時，關閉分頁或重新整理前讓瀏覽器跳出確認。 */
 export function useBeforeUnload(active: boolean) {
@@ -74,6 +75,8 @@ export function useStoredFlag(key: string, initial: boolean): [boolean, (v: bool
 /** 模型清單（整個頁面共用一次請求），用來把模型 id 顯示成名稱。 */
 export function useModels(): ModelList | null {
   const [models, setModels] = useState<ModelList | null>(null);
+  // 換語言時重新讀（後端依語言回傳名稱與說明）
+  const lang = useLang();
   useEffect(() => {
     let alive = true;
     loadModels().then(
@@ -85,10 +88,38 @@ export function useModels(): ModelList | null {
     return () => {
       alive = false;
     };
-  }, []);
+  }, [lang]);
   return models;
 }
 
+/**
+ * 模型的顯示名稱、簡稱（「精準」）與說明：認得的 id 用 i18n 字典（model.<id>.*），不認得的用後端回傳的文字。
+ * 簡稱取名稱括號前面的部分。
+ */
+export function modelText(m: ModelInfo): { label: string; short: string; description: string } {
+  const pick = (field: "label" | "short" | "desc", fallback: string) => {
+    const k = `model.${m.id}.${field}`;
+    return hasMsg(k) ? tr(k) : fallback;
+  };
+  const label = pick("label", m.label);
+  return {
+    label,
+    short: pick("short", label.split(/\s*[（(]/)[0]),
+    description: pick("desc", m.description),
+  };
+}
+
 export function modelLabel(models: ModelList | null, id: string): string {
-  return models?.models.find((m) => m.id === id)?.label ?? id;
+  const m = models?.models.find((x) => x.id === id);
+  if (m) return modelText(m).label;
+  const k = `model.${id}.label`;
+  return hasMsg(k) ? tr(k) : id;
+}
+
+/** 模型簡稱（「精準」）：手機版面窄的地方用；不認得的 id 用完整名稱。 */
+export function modelShort(models: ModelList | null, id: string): string {
+  const m = models?.models.find((x) => x.id === id);
+  if (m) return modelText(m).short;
+  const k = `model.${id}.short`;
+  return hasMsg(k) ? tr(k) : modelLabel(models, id);
 }

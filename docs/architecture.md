@@ -163,6 +163,13 @@ React 19＋Vite＋TypeScript（`frontend/`）：逐字稿以頭像泡泡呈現�
 - **無障礙與防遺失**：未儲存的泡泡編輯、字典、上傳中離開頁面都會先確認（站內換頁用 `useBlocker`，關分頁用 `beforeunload`）；泡泡可以 Tab 到、Enter 播放、Shift＋F10 開選單；觸控目標 44px；`prefers-reduced-motion` 時色帶直接出現、播放面板改成淡入淡出、其他動畫關閉。
 - **字型（自己架設，不連 Google Fonts）**：`@fontsource/noto-serif-tc`（400 逐字稿、600 標題）與 `@fontsource/noto-sans-tc`（400 介面、600 按鈕與講者名），5.3.1。每個字重依 unicode-range 切成約 108 個 woff2 小檔（每檔約 1–60 KB），瀏覽器只下載畫面上用到的字：實測結果頁約下載 30–50 個切片。四個字重的 woff2 合計約 10.3 MB（宋體每個字重約 2.9 MB、黑體約 2.2 MB），全部打包進 `dist/assets`（`vite.config.ts` 的 `woff2Only` 外掛拿掉了 woff 備援，dist 從約 24 MB 降到 12 MB）。`@font-face` 宣告約 460 KB（伺服器用 gzip 壓縮後約 195 KB；SSE、音檔、Range 請求、woff2 不壓縮，見 `main.py` 的 `CompressMiddleware`），放在獨立的 `fonts-*.css`，由 `main.tsx` 動態 import 非同步載入，不擋第一次繪製；載入前先用系統字（Songti TC／PingFang TC），之後換上（`font-display: swap`）。
 
+## 介面語言（i18n）
+
+- **前端**（`frontend/src/i18n/`）：沒有用套件，自己寫。`zh-TW.ts` 是基準字典，`en.ts` 型別必須和它相同，漏翻或參數不符時 typecheck 會失敗。元件裡用 `useT()`，元件外用 `tr()`。語言選擇存在 localStorage `v2t.lang`，沒選過時看 `navigator.languages`（任何一個 zh 開頭就用 zh-TW，否則用 en）。`index.html` 在第一次繪製前就設好 `<html lang>` 與標題。
+- **後端**（`backend/app/i18n.py`）：使用者看得到的文字都是代碼＋參數，訊息目錄 `MESSAGES` 有 zh-TW 和 en 兩種版本，測試會確保兩邊都有、參數一致。資料庫裡的 stage、error、warnings 存 `{"code","params"}`，回應時才依語言組成文字。語言判斷順序是 `?lang=` → `Accept-Language` → zh-TW。舊資料裡的中文字串原樣顯示。
+- **API**：錯誤回應是 `{"detail": 依語言的文字, "code", "params"}`；任務多了 `stage_code`（`stage.transcribe` 等），前端用它判斷目前步驟。SSE 與匯出連結用 `?lang=` 帶語言。換語言時，前端會重連 SSE，重抓頁面資料只合併文字欄位，不會打斷播放或清掉未存的編輯。
+- **新增文字**：前端在 `zh-TW.ts` 與 `en.ts` 各加一個 key；後端在 `MESSAGES` 加一個 code，並用 `msg()`／`ApiError` 回傳，不要寫死字串。
+
 ## 測試
 
 測試涵蓋：YouTube（網址解析與非 YouTube 網域被拒、字幕語言優先順序、自動字幕不採用、VTT／SRT 解析、講者套到字幕段落、字幕路線不呼叫 ASR／對齊、各種下載錯誤訊息、播放清單展開與建立任務／下載／重新轉錄／取消／刪除（mock yt-dlp）、yt-dlp 子行程取消與逾時、下載時間估算、migration）、字典解析／替換／加入規則、OpenCC＋字典、SRT／VTT 時間格式與匯出內容、逐字指派講者與切句（含缺時間戳、平滑、空白字元）、逐字稿編輯、三種刪除模式、佇列（排序、重新排隊、取消、依 position 領取、調整順序含並發與處理中不能移動、batch_id、整批取消、預估時間有／無歷史資料、資料庫 migration）、聲紋比對、以假後端跑完整推論流程（含 gated 失敗、OOM、取消）、API 端對端。

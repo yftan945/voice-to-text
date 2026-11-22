@@ -1,3 +1,5 @@
+import { getLang, hasMsg, LOCALE, tr } from "./i18n";
+
 /** 時間碼：m:ss，超過一小時 h:mm:ss（用 Sans 的 tabular-nums 顯示）。 */
 export function tc(seconds: number): string {
   const t = Math.max(0, Math.floor(seconds));
@@ -13,27 +15,36 @@ export function duration(seconds: number | null | undefined): string {
   const h = Math.floor(s / 3600);
   const m = Math.floor((s % 3600) / 60);
   const sec = s % 60;
-  if (h) return `${h} 小時 ${m} 分`;
-  if (m) return `${m} 分 ${sec} 秒`;
-  return `${sec} 秒`;
+  if (h) return tr("time.hm", { h, m });
+  if (m) return tr("time.ms", { m, s: sec });
+  return tr("time.s", { s: sec });
 }
 
-/** 預估時間（一律標「約」）：不到 1 分鐘、約 N 分鐘、約 H 小時 M 分。 */
+/** 預估時間（一律標「約」）：不到 1 分鐘、約 N 分鐘、約 H 小時 M 分（英文：less than 1 min、about N min…）。 */
 export function approxDuration(seconds: number): string {
-  if (seconds < 60) return "不到 1 分鐘";
+  if (seconds < 60) return tr("time.lessThanMin");
   const m = Math.ceil(seconds / 60);
-  if (m < 60) return `約 ${m} 分鐘`;
+  if (m < 60) return tr("time.aboutM", { m });
   const h = Math.floor(m / 60);
   const rest = m % 60;
-  return rest ? `約 ${h} 小時 ${rest} 分` : `約 ${h} 小時`;
+  return rest ? tr("time.aboutHM", { h, m: rest }) : tr("time.aboutH", { h });
+}
+
+const pad = (n: number) => String(n).padStart(2, "0");
+
+/** 時鐘時間：中文 24 小時制 HH:MM，英文 2:05 PM。 */
+function clock(d: Date): string {
+  if (getLang() === "en") return d.toLocaleTimeString(LOCALE.en, { hour: "numeric", minute: "2-digit" });
+  return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
 /** 幾秒後的時鐘時間（HH:MM），跨日時加上日期。 */
 export function clockAfter(seconds: number, now = Date.now()): string {
   const d = new Date(now + seconds * 1000);
-  const pad = (n: number) => String(n).padStart(2, "0");
-  const hm = `${pad(d.getHours())}:${pad(d.getMinutes())}`;
-  return d.toDateString() === new Date(now).toDateString() ? hm : `${d.getMonth() + 1}/${d.getDate()} ${hm}`;
+  const hm = clock(d);
+  if (d.toDateString() === new Date(now).toDateString()) return hm;
+  if (getLang() === "en") return `${d.toLocaleDateString(LOCALE.en, { month: "short", day: "numeric" })}, ${hm}`;
+  return `${d.getMonth() + 1}/${d.getDate()} ${hm}`;
 }
 
 /** 佇列進度的預估文字（處理中：何時完成；排隊中：何時開始、何時完成）。 */
@@ -44,25 +55,25 @@ export function etaText(job: {
 }): string {
   const finish = job.eta_finish_seconds;
   if (job.status === "running") {
-    if (finish == null) return "無法估算剩餘時間";
-    if (finish < 60) return "即將完成";
-    return `${approxDuration(finish)}後完成（${clockAfter(finish)} 左右）`;
+    if (finish == null) return tr("eta.noRemaining");
+    if (finish < 60) return tr("eta.almostDone");
+    return tr("eta.doneIn", { d: approxDuration(finish), clock: clockAfter(finish) });
   }
   const start = job.eta_start_seconds;
-  if (start == null || finish == null) return "無法估算等待時間（有檔案長度不明）";
-  const head = start < 60 ? "即將開始處理" : `${approxDuration(start)}後開始`;
-  return `${head}，${approxDuration(finish)}後完成`;
+  if (start == null || finish == null) return tr("eta.noWait");
+  const head = start < 60 ? tr("eta.startSoon") : tr("eta.startIn", { d: approxDuration(start) });
+  return tr("eta.queued", { head, d: approxDuration(finish) });
 }
 
 export function timeOfDay(ts: number): string {
-  const d = new Date(ts * 1000);
-  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+  return clock(new Date(ts * 1000));
 }
 
 export function dateTime(ts: number | null | undefined): string {
   if (!ts) return "—";
   const d = new Date(ts * 1000);
-  const pad = (n: number) => String(n).padStart(2, "0");
+  if (getLang() === "en")
+    return d.toLocaleString(LOCALE.en, { year: "numeric", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
   return `${d.getFullYear()}/${pad(d.getMonth() + 1)}/${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
@@ -120,34 +131,12 @@ export function joinSeparator(prev: string, next: string): string {
   return "";
 }
 
-const LANGUAGE_NAMES: Record<string, string> = {
-  "zh-tw": "台灣繁體中文",
-  "zh-hant": "繁體中文",
-  "zh-hk": "香港繁體中文",
-  "zh-mo": "澳門繁體中文",
-  zh: "中文",
-  "zh-hans": "簡體中文",
-  "zh-cn": "簡體中文",
-  "zh-sg": "簡體中文（新加坡）",
-  en: "英文",
-  ja: "日文",
-  ko: "韓文",
-  fr: "法文",
-  de: "德文",
-  es: "西班牙文",
-  vi: "越南文",
-  th: "泰文",
-  id: "印尼文",
-  ms: "馬來文",
-  nan: "台語",
-  hak: "客語",
-};
-
-/** 字幕語言代碼 → 顯示名稱（與後端 youtube.language_name 一致）。 */
+/** 字幕語言代碼 → 顯示名稱（與後端 youtube.language_name 一致；名稱在 i18n 字典的 langName.*）。 */
 export function languageName(code: string | null | undefined): string {
   if (!code) return "";
   const key = code.toLowerCase();
-  return LANGUAGE_NAMES[key] ?? LANGUAGE_NAMES[key.split("-")[0]] ?? code;
+  for (const k of [`langName.${key}`, `langName.${key.split("-")[0]}`]) if (hasMsg(k)) return tr(k);
+  return code;
 }
 
 /** caption_source（manual:zh-TW）→ 使用的字幕語言；不是用字幕回傳 null。 */

@@ -13,6 +13,8 @@ import wave
 from dataclasses import dataclass
 from pathlib import Path
 
+from ..i18n import LocalizedError
+
 log = logging.getLogger(__name__)
 
 SAMPLE_RATE = 16000
@@ -25,8 +27,8 @@ BLOCKED_FORMATS = frozenset({
 })
 
 
-class AudioError(RuntimeError):
-    pass
+class AudioError(LocalizedError, RuntimeError):
+    """ffmpeg／ffprobe 失敗；msg 可以直接顯示給使用者（見 i18n 的 audio.*）。"""
 
 
 @dataclass
@@ -46,15 +48,15 @@ def probe(path: Path) -> ProbeResult:
             capture_output=True, text=True, timeout=120, check=False,
         )
     except FileNotFoundError as e:
-        raise AudioError("找不到 ffprobe") from e
+        raise AudioError("audio.ffprobe_missing") from e
     if proc.returncode != 0:
-        raise AudioError(f"無法讀取音檔：{proc.stderr.strip()[-300:]}")
+        raise AudioError("audio.unreadable", detail=proc.stderr.strip()[-300:])
     data = json.loads(proc.stdout or "{}")
     streams = data.get("streams") or []
     fmt = data.get("format") or {}
     format_name = fmt.get("format_name") or None
     if format_name and BLOCKED_FORMATS.intersection(format_name.split(",")):
-        raise AudioError(f"不支援這種檔案格式（{format_name}），請上傳一般的音訊或影片檔")
+        raise AudioError("audio.format_unsupported", format=format_name)
     dur = fmt.get("duration")
     duration = float(dur) if dur not in (None, "N/A") else None
     if duration is None:
@@ -72,7 +74,7 @@ def _run_ffmpeg(args: list[str], timeout: int = 3600) -> subprocess.CompletedPro
             capture_output=True, text=True, timeout=timeout, check=False,
         )
     except FileNotFoundError as e:
-        raise AudioError("找不到 ffmpeg") from e
+        raise AudioError("audio.ffmpeg_missing") from e
 
 
 def convert_to_wav(src: Path, dst: Path, num_streams: int | None = None) -> int:
@@ -80,7 +82,7 @@ def convert_to_wav(src: Path, dst: Path, num_streams: int | None = None) -> int:
     if num_streams is None:
         num_streams = probe(src).audio_streams
     if num_streams <= 0:
-        raise AudioError("檔案裡沒有音軌")
+        raise AudioError("audio.no_stream")
     last_err = ""
     for idx in range(num_streams):
         proc = _run_ffmpeg(
@@ -93,7 +95,7 @@ def convert_to_wav(src: Path, dst: Path, num_streams: int | None = None) -> int:
             return idx
         last_err = proc.stderr.strip()[-300:]
         log.warning("音軌 0:a:%d 轉檔失敗：%s", idx, last_err)
-    raise AudioError(f"所有音軌都無法解碼：{last_err}")
+    raise AudioError("audio.decode_failed", detail=last_err)
 
 
 def make_playback(src: Path, dst: Path, stream_index: int) -> None:
@@ -105,7 +107,7 @@ def make_playback(src: Path, dst: Path, stream_index: int) -> None:
     )
     if proc.returncode != 0:
         tmp.unlink(missing_ok=True)
-        raise AudioError(f"產生播放檔失敗：{proc.stderr.strip()[-300:]}")
+        raise AudioError("audio.playback_failed", detail=proc.stderr.strip()[-300:])
     tmp.replace(dst)
 
 
@@ -115,7 +117,7 @@ def load_wav(path: Path):
 
     with wave.open(str(path), "rb") as w:
         if w.getsampwidth() != 2:
-            raise AudioError("只支援 16-bit WAV")
+            raise AudioError("audio.wav_16bit_only")
         frames = w.readframes(w.getnframes())
         channels = w.getnchannels()
     data = np.frombuffer(frames, dtype=np.int16).astype(np.float32) / 32768.0

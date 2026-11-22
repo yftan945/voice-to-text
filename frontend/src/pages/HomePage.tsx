@@ -8,7 +8,8 @@ import JobOptionsForm from "../components/JobOptionsForm";
 import { ConfirmModal } from "../components/Modal";
 import { useToast } from "../components/Toast";
 import YoutubeInput, { type YoutubePick } from "../components/YoutubeInput";
-import { useIsMobile, useModels, useUnsavedBlocker } from "../hooks";
+import { modelText, useIsMobile, useModels, useUnsavedBlocker } from "../hooks";
+import { useT } from "../i18n";
 import { isActive, useJobs } from "../jobs";
 import type { Dictionary, JobOptionsValue, ModelList } from "../types";
 import DoneSection from "./home/DoneSection";
@@ -27,17 +28,20 @@ function SettingsSummary({
   dicts: Dictionary[] | null;
   onEdit: () => void;
 }) {
+  const t = useT();
   const m = models?.models.find((x) => x.id === opts.model);
   const names = (dicts ?? []).filter((d) => opts.dictionaryIds.includes(d.id)).map((d) => d.name);
   const items = [
     // 「精準（Breeze-ASR-25）」→「精準模型」
-    m ? `${m.label.split("（")[0]}模型` : "模型載入中",
-    opts.diarize ? `區分講者（${opts.numSpeakers ? `${opts.numSpeakers} 人` : "自動"}）` : "不分講者",
-    names.length ? `字典：${names.join("、")}` : "不用字典",
+    m ? t("home.modelShort", { name: modelText(m).short }) : t("home.modelLoading"),
+    opts.diarize
+      ? t("home.diarizeOn", { n: opts.numSpeakers ? t("opts.nPeople", { n: opts.numSpeakers }) : t("home.auto") })
+      : t("home.diarizeOff"),
+    names.length ? t("home.dicts", { names: names.join(t("common.listSep")) }) : t("home.noDicts"),
   ];
   return (
     <div className="up-settings">
-      <span className="lab">這批的設定</span>
+      <span className="lab">{t("home.batchSettings")}</span>
       <ul>
         {items.map((x) => (
           <li key={x} className="break">
@@ -45,8 +49,8 @@ function SettingsSummary({
           </li>
         ))}
       </ul>
-      <button type="button" className="tbtn ink" onClick={onEdit} aria-label="修改轉錄設定">
-        修改
+      <button type="button" className="tbtn ink" onClick={onEdit} aria-label={t("home.editLabel")}>
+        {t("home.edit")}
       </button>
     </div>
   );
@@ -58,6 +62,7 @@ function SettingsSummary({
  * 手機：拖放區收起，底部固定「選擇錄音檔／貼上網址／設定」，網址與設定各自一個底部面板。
  */
 export default function HomePage() {
+  const t = useT();
   const navigate = useNavigate();
   const toast = useToast();
   const isMobile = useIsMobile();
@@ -80,18 +85,18 @@ export default function HomePage() {
     const added = fresh.length;
     if (!added) return;
     const failed = items.filter((i) => i.state === "failed").length;
-    const viewTasks = { label: "查看任務", to: "/tasks" };
+    const viewTasks = { label: t("home.viewTasks"), to: "/tasks" };
     if (failed) {
       // 有失敗的留在清單上重試；成功的已在背景排隊，到任務頁看得到
-      toast(`${added} 個已加入佇列，${failed} 個失敗`, viewTasks);
+      toast(t("home.queuedSomeFailed", { added, failed }), viewTasks);
     } else if (items.length === 1) {
       // 單一項目直接看它的進度
       setGoTo(`/jobs/${items[0].jobId}`);
-      toast("已加入佇列", viewTasks);
+      toast(t("home.queuedOne"), viewTasks);
     } else {
       // 多個項目從清單拿掉，進度在任務頁
       up.clearDone();
-      toast(`${added} 個已加入佇列`, viewTasks);
+      toast(t("home.queuedN", { n: added }), viewTasks);
     }
   });
 
@@ -114,12 +119,12 @@ export default function HomePage() {
 
   const addFiles = (files: File[]) => {
     up.addFiles(files);
-    if (files.length) toast(`已加入 ${files.length} 個檔案，按「開始轉錄」上傳`);
+    if (files.length) toast(t("home.filesAdded", { n: files.length }));
   };
 
   const addVideos = (videos: YoutubePick[], done: boolean) => {
     const n = up.addVideos(videos);
-    toast(n ? `已加入 ${n} 支影片，按「開始轉錄」送出` : "清單裡已經有這些影片");
+    toast(n ? t("home.videosAdded", { n }) : t("home.videosDup"));
     // 手機：全部處理完就關掉面板，回到清單看得到剛加入的影片（有錯誤或還有播放清單要勾選時留著）
     if (isMobile && done) setSheet(null);
   };
@@ -132,17 +137,17 @@ export default function HomePage() {
 
   return (
     <main className={`page home${isMobile ? " with-dock" : ""}`}>
-      <h1>錄音</h1>
+      <h1>{t("nav.record")}</h1>
 
-      <section aria-label="新增錄音" className="add-sec">
+      <section aria-label={t("home.addSection")} className="add-sec">
         {!isMobile && (
           <>
             <FileDropzone
               multiple
               disabled={up.uploading}
               onPickFiles={addFiles}
-              title="把錄音拖到這裡"
-              hint="可以一次放多個檔案：.qta、.m4a、.mp3、.wav、.mp4 與其他影音檔。"
+              title={t("home.dropTitle")}
+              hint={t("home.dropHint")}
             />
             <div className="add-panel">
               {urlInput}
@@ -150,7 +155,7 @@ export default function HomePage() {
             </div>
           </>
         )}
-        {up.notice && <p className="help">{up.notice}</p>}
+        {up.notice && <p className="help">{t(up.notice)}</p>}
       </section>
 
       <UploadSection
@@ -167,7 +172,7 @@ export default function HomePage() {
 
       {error && <p className="err" role="alert">{error}</p>}
       {jobs === null ? (
-        !error && <p className="empty">載入中…</p>
+        !error && <p className="empty">{t("common.loading")}</p>
       ) : (
         <DoneSection jobs={finished} models={models} onReplace={(j) => merge([j])} onRemove={remove} />
       )}
@@ -183,13 +188,13 @@ export default function HomePage() {
               onClick={() => pickRef.current?.click()}
             >
               <Icon name="upload" />
-              選擇錄音檔
+              {t("home.dockPick")}
             </button>
             <button type="button" className="btn" onClick={() => setSheet("url")}>
-              貼上網址
+              {t("home.dockUrl")}
             </button>
             <button type="button" className="btn" onClick={() => setSheet("set")}>
-              設定
+              {t("home.dockSettings")}
             </button>
           </div>
           <input
@@ -204,10 +209,10 @@ export default function HomePage() {
             }}
           />
           {/* 兩個面板一直掛著（關閉時 inert），輸入到一半的網址、選好的設定不會因為關閉而消失 */}
-          <BottomSheet open={sheet === "url"} title="貼上網址" initialFocus="#yt-urls" onClose={() => setSheet(null)}>
+          <BottomSheet open={sheet === "url"} title={t("home.sheetUrl")} initialFocus="#yt-urls" onClose={() => setSheet(null)}>
             <div className="add-panel">{urlInput}</div>
           </BottomSheet>
-          <BottomSheet open={sheet === "set"} title="轉錄設定" initialFocus=".opts select" onClose={() => setSheet(null)}>
+          <BottomSheet open={sheet === "set"} title={t("opts.legend")} initialFocus=".opts select" onClose={() => setSheet(null)}>
             <div className="add-panel">{optionsForm}</div>
           </BottomSheet>
         </>
@@ -215,10 +220,10 @@ export default function HomePage() {
 
       {blocker.state === "blocked" && (
         <ConfirmModal
-          title="上傳還沒完成"
-          message="離開這個頁面會停止上傳。已經上傳完成的檔案會繼續在背景轉錄；還沒上傳的檔案要重新選擇。"
-          confirmLabel="停止上傳並離開"
-          cancelLabel="繼續上傳"
+          title={t("home.leaveTitle")}
+          message={t("home.leaveMsg")}
+          confirmLabel={t("home.leaveConfirm")}
+          cancelLabel={t("home.leaveCancel")}
           danger
           onClose={() => blocker.reset()}
           onConfirm={() => {

@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { tc } from "../format";
+import { useT } from "../i18n";
 import type { PlayerStore } from "../lib/player";
 import { colorClass, type Run } from "../lib/speakers";
 
@@ -54,6 +55,7 @@ export default function SpeakerBand({
   ticks?: boolean;
   className?: string;
 }) {
+  const t = useT();
   const ref = useRef<HTMLDivElement>(null);
   const headRef = useRef<HTMLDivElement>(null);
   const tipRef = useRef<HTMLDivElement>(null);
@@ -72,17 +74,17 @@ export default function SpeakerBand({
   // 播放位置：訂閱 store，直接更新細線位置與 aria
   useLayoutEffect(() => {
     const update = () => {
-      const t = player.state.time;
+      const time = player.state.time;
       const el = ref.current;
-      if (headRef.current) headRef.current.style.left = `${(Math.min(t, duration) / (duration || 1)) * 100}%`;
+      if (headRef.current) headRef.current.style.left = `${(Math.min(time, duration) / (duration || 1)) * 100}%`;
       if (el) {
-        el.setAttribute("aria-valuenow", String(Math.round(t)));
-        el.setAttribute("aria-valuetext", `${tc(t)}，共 ${tc(duration)}`);
+        el.setAttribute("aria-valuenow", String(Math.round(time)));
+        el.setAttribute("aria-valuetext", t("band.valueText", { t: tc(time), total: tc(duration) }));
       }
     };
     update();
     return player.subscribe(update);
-  }, [player, duration]);
+  }, [player, duration, t]);
 
   useEffect(() => {
     const el = ref.current;
@@ -118,7 +120,7 @@ export default function SpeakerBand({
         className={`band${seekable ? " seekable" : ""}${draw ? " draw" : ""}${scrub ? " scrub" : ""} ${className}`}
         role="slider"
         tabIndex={seekable ? 0 : -1}
-        aria-label="講者色帶與播放位置"
+        aria-label={t("band.label")}
         aria-valuemin={0}
         aria-valuemax={Math.round(duration)}
         aria-disabled={!seekable || undefined}

@@ -5,7 +5,7 @@ from app.config import settings
 from app.pipeline import runner
 from app.pipeline.errors import GPU_BUSY_MESSAGE, Canceled, GpuBusy
 
-from fakes import DiarizationUnavailable, FakeBackend, patch_audio
+from fakes import DiarizationUnavailable, FakeBackend, patch_audio, zh
 
 
 def make_input(tmp_path, **kw):
@@ -84,7 +84,8 @@ def test_diarize_disabled_and_num_speakers(data_dir, tmp_path, monkeypatch):
 def test_align_failure_falls_back(data_dir, tmp_path, monkeypatch):
     patch_audio(monkeypatch)
     out, _ = run(make_input(tmp_path), FakeBackend(align_error=RuntimeError("no model")))
-    assert any("逐字對齊失敗" in w for w in out.transcript["warnings"])
+    assert out.transcript["warnings"][0]["code"] == "warning.align_failed"
+    assert any("逐字對齊失敗" in w for w in zh(out.transcript["warnings"]))
     assert out.transcript["segments"]
 
 
@@ -231,11 +232,12 @@ def test_dropped_prompt_leak_segments_become_warnings(data_dir, tmp_path, monkey
             return super().transcribe(audio, model, hint_terms, duration, on_progress, check_cancel)
 
     out, _ = run(make_input(tmp_path), LeakyBackend())
-    w = out.transcript["warnings"]
+    w = zh(out.transcript["warnings"])
     assert len(w) == 1 and "[01:02:05]" in w[0] and "人工智慧、Alex" in w[0] and "略過 1 段" in w[0]
 
 
 def test_dropped_warning_is_truncated():
     items = [{"start": i, "end": i + 1, "text": "字" * 50} for i in range(7)]
-    msg = runner.dropped_warning(items)
+    msg = zh(runner.dropped_warning(items))
     assert msg.startswith("略過 7 段") and "另有 2 段" in msg and "…" in msg
+    assert "」、[" in msg  # 項目之間用頓號

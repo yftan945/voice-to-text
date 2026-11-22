@@ -32,8 +32,10 @@
 /* 重新轉錄對話框比較窄：單欄，「區分講者」不會被擠到換行 */
 .modal .opts { grid-template-columns: minmax(0, 1fr); }
 .opt-spk .tick { white-space: nowrap; }
-.opt-spk { display: flex; align-items: center; gap: 10px; }
-.opt-num .field { width: auto; min-width: 150px; }
+/* 窄的欄寬（例如英文 860–940px）放不下時人數選單換到下一行，不撐出橫向捲動 */
+.opt-spk { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; min-width: 0; }
+.opt-num { min-width: 0; max-width: 100%; }
+.opt-num .field { width: auto; min-width: 0; max-width: 100%; }
 .opt-dict { grid-column: 1 / -1; }
 .opt-dicts { display: flex; flex-wrap: wrap; gap: 0 18px; }
 .opt-dicts .tick small { margin-left: 2px; }
@@ -165,4 +167,9 @@
   .done-row .side { text-align: left; display: flex; flex-wrap: wrap; align-items: center; gap: 0 14px; font-size: 13px; padding: 0; }
   .done-row .side > * { display: inline; }
   .side-acts { margin: 0 0 0 auto; gap: 0; }
+}
+
+/* 英文的按鈕文字較長：320px 等級縮小底部固定列按鈕的內距，三顆按鈕仍在一行 */
+@media (max-width: 359px) {
+  html:lang(en) .dock .btn { padding: 0 10px; }
 }

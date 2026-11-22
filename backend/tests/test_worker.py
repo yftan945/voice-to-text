@@ -15,7 +15,7 @@ from app.pipeline.backend import GpuBackend
 from app.pipeline.errors import GPU_BUSY_MESSAGE
 from app.pipeline.models import ModelManager
 
-from fakes import FakeBackend, patch_audio
+from fakes import FakeBackend, patch_audio, zh
 
 OOM = "CUDA failed with error out of memory"
 WAIT = 10.0  # 等待背景執行緒的上限（秒），正常情況下遠低於這個值
@@ -120,7 +120,7 @@ def test_requeue_unfinished_only_touches_running(data_dir):
     assert queue.requeue_unfinished() == 1
     r = queue.get(running["id"])
     assert r["status"] == "queued" and r["progress"] == 0
-    assert "重新排隊" in r["stage"]
+    assert r["stage"] == {"code": "stage.requeued", "params": {}} and "重新排隊" in zh(r["stage"])
     for jid, st in others.items():
         assert status(jid) == st
     assert status(waiting["id"]) == "queued"
@@ -228,7 +228,7 @@ def test_cancel_running_job_stops_at_checkpoint(data_dir, monkeypatch):
     backend = CancelDuringTranscribe()
     Worker(backend).process(queue.claim_next())
     got = queue.get(job["id"])
-    assert got["status"] == "canceled" and got["stage"] == "已取消"
+    assert got["status"] == "canceled" and zh(got["stage"]) == "已取消"
     assert got["cancel_requested"] is False
     assert got["has_transcript"] is False and storage.load(job["id"]) is None
     assert not any(c[0] == "align" for c in backend.calls)  # 停在轉錄後的檢查點
@@ -269,7 +269,8 @@ def test_worker_marks_gpu_busy_on_oom(data_dir, monkeypatch):
     Worker(backend).process(queue.claim_next())
     got = queue.get(job["id"])
     assert got["status"] == "failed"
-    assert got["error"] == GPU_BUSY_MESSAGE == "GPU 忙碌，請稍後重試"
+    assert got["error"] == {"code": "gpu.busy", "params": {}}
+    assert zh(got["error"]) == GPU_BUSY_MESSAGE == "GPU 忙碌，請稍後重試"
     assert backend.unloaded
 
 
@@ -324,7 +325,7 @@ def test_gpu_backend_second_oom_fails_with_gpu_busy(data_dir, monkeypatch):
 
     assert len(calls) == 2
     got = queue.get(job["id"])
-    assert got["status"] == "failed" and got["error"] == GPU_BUSY_MESSAGE
+    assert got["status"] == "failed" and zh(got["error"]) == GPU_BUSY_MESSAGE
     assert manager.loaded() == []  # 失敗後模型都已卸載
 
 
@@ -382,7 +383,7 @@ def test_worker_frees_gpu_memory_after_gpu_busy_outside_except(data_dir, monkeyp
     seen = []
     monkeypatch.setattr(worker_mod, "free_gpu_memory", lambda: seen.append(sys.exc_info()[0]))
     Worker(FakeBackend(transcribe_error=RuntimeError(OOM))).process(queue.claim_next())
-    assert queue.get(job["id"])["error"] == GPU_BUSY_MESSAGE
+    assert zh(queue.get(job["id"])["error"]) == GPU_BUSY_MESSAGE
     assert seen == [None]  # 呼叫時已不在 except 區塊裡
 
 
@@ -417,7 +418,7 @@ def test_unexpected_error_after_run_does_not_leave_job_running(data_dir, monkeyp
     monkeypatch.setattr(storage, "save_original", boom)
     Worker(FakeBackend()).process(queue.claim_next())
     got = queue.get(job["id"])
-    assert got["status"] == "failed" and "未預期" in got["error"]
+    assert got["status"] == "failed" and "未預期" in zh(got["error"])
 
 
 # ---- B6：重新排隊次數上限 ----
@@ -435,7 +436,7 @@ def test_requeue_unfinished_gives_up_after_two_restarts(data_dir):
     assert queue.requeue_unfinished() == 0
     got = queue.get(job["id"])
     assert got["status"] == "failed"
-    assert got["error"] == "處理時程式中斷多次，可能是檔案過長或損壞"
+    assert zh(got["error"]) == "處理時程式中斷多次，可能是檔案過長或損壞"
     assert queue.claim_next() is None
 
 

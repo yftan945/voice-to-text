@@ -19,7 +19,8 @@ import time
 from pathlib import Path
 from typing import Any, Callable
 
-from ..youtube import YouTubeError, classify_error, playlist_url, video_url
+from ..i18n import msg
+from ..youtube import YouTubeError, classify_error, playlist_url, unknown_error, video_url
 
 log = logging.getLogger(__name__)
 
@@ -83,7 +84,7 @@ def run(args: list[str], *, timeout: float, check_cancel: Callable[[], None] | N
             start_new_session=True,  # 自己一個行程群組：取消時連 deno 一起砍
         )
     except FileNotFoundError as e:
-        raise YouTubeError("missing", "伺服器沒有安裝 yt-dlp", 502) from e
+        raise YouTubeError("missing", msg("youtube.error.ytdlp_missing"), 502) from e
     out: list[str] = []
     err: list[str] = []
 
@@ -121,7 +122,7 @@ def run(args: list[str], *, timeout: float, check_cancel: Callable[[], None] | N
             if time.monotonic() > deadline:
                 _kill(proc)
                 proc.wait()
-                raise YouTubeError("timeout", "連線 YouTube 逾時，請稍後再試。", 502)
+                raise YouTubeError("timeout", msg("youtube.error.timeout"), 502)
     except BaseException:
         if proc.poll() is None:
             _kill(proc)
@@ -139,9 +140,11 @@ def _json_or_error(res: Result) -> dict[str, Any]:
     try:
         data = json.loads(res.stdout)
     except ValueError as e:
-        raise classify_error(res.stderr or "無法解析 yt-dlp 的輸出") from e
+        if not res.stderr.strip():
+            raise unknown_error(msg("youtube.error.unparsable_output")) from e
+        raise classify_error(res.stderr) from e
     if not isinstance(data, dict):
-        raise YouTubeError("unknown", "YouTube 回傳的資料格式不對", 502)
+        raise YouTubeError("unknown", msg("youtube.error.bad_data"), 502)
     return data
 
 
@@ -237,7 +240,9 @@ def download(info: dict[str, Any], dest_dir: Path, *, audio: bool, caption_lang:
         # --max-filesize 超過時 yt-dlp 只印訊息、回傳 0，不會產生檔案
         if "max-filesize" in res.stderr.lower() or "larger than" in res.stderr.lower():
             raise classify_error("ERROR: File is larger than max-filesize")
-        raise classify_error(res.stderr or "ERROR: 下載後找不到音訊檔")
+        if not res.stderr.strip():
+            raise unknown_error(msg("youtube.error.no_audio_file"))
+        raise classify_error(res.stderr)
     on_progress(1.0)
 
 

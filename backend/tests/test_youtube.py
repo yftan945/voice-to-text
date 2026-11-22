@@ -10,7 +10,7 @@ import time
 import pytest
 from fastapi.testclient import TestClient
 
-from app import db, storage, youtube_cache
+from app import db, i18n, storage, youtube_cache
 from app import dictionary as dict_mod
 from app import youtube as yt
 from app.api import youtube as yt_api
@@ -20,7 +20,7 @@ from app.main import create_app
 from app.pipeline import captions, runner, ytdlp
 from app.pipeline.errors import Canceled
 
-from fakes import FakeBackend, patch_audio
+from fakes import FakeBackend, patch_audio, zh
 
 VID = "abcDEF12_-x"
 VID2 = "zyxWVU98-_a"
@@ -116,9 +116,12 @@ def test_automatic_captions_are_not_used():
 
 
 def test_caption_label():
-    assert yt.caption_label("zh-TW") == "YouTube 人工字幕（台灣繁體中文）"
-    assert yt.caption_label("en-US") == "YouTube 人工字幕（英文）"
-    assert yt.caption_label("xx") == "YouTube 人工字幕（xx）"
+    assert zh(yt.caption_label("zh-TW")) == "YouTube 人工字幕（台灣繁體中文）"
+    assert zh(yt.caption_label("en-US")) == "YouTube 人工字幕（英文）"
+    assert zh(yt.caption_label("xx")) == "YouTube 人工字幕（xx）"
+    assert zh(yt.caption_label(None)) == "YouTube 人工字幕"
+    assert i18n.localize(yt.caption_label("zh-TW"), "en") == "YouTube manual captions (Traditional Chinese (Taiwan))"
+    assert i18n.localize(yt.caption_label("en-US"), "en") == "YouTube manual captions (English)"
 
 
 # ---- VTT／SRT 解析 ----
@@ -260,11 +263,12 @@ def test_runner_caption_route_skips_asr_and_align(data_dir, tmp_path, monkeypatc
         ("SPEAKER_01", "人工智慧很好"),       # 字典替換照常
     ]
     assert t["model"] is None
-    assert t["text_source"] == {"type": "youtube_captions", "lang": "zh-TW", "label": "YouTube 人工字幕（台灣繁體中文）"}
+    assert {**t["text_source"], "label": zh(t["text_source"]["label"])} == {
+        "type": "youtube_captions", "lang": "zh-TW", "label": "YouTube 人工字幕（台灣繁體中文）"}
     assert t["source"]["video_id"] == VID
     assert t["speaker_embeddings"]  # 聲紋照常計算
-    labels = [label for _, label, _ in progress]
-    assert "讀取 YouTube 字幕中" in labels and "語音轉文字中" not in labels
+    labels = [label["code"] for _, label, _ in progress]
+    assert "stage.captions" in labels and "stage.transcribe" not in labels
     values = [p for _, _, p in progress]
     assert values == sorted(values) and values[-1] == 1.0
 
@@ -449,10 +453,11 @@ def client(data_dir, monkeypatch, backend):
 
 
 def run_next(client):
+    """跑下一個任務，回傳 API 看到的任務（stage／error／warnings 是 zh-TW 文字）。"""
     job = queue.claim_next()
     assert job is not None
     client.app.state.worker.process(job)
-    return queue.get(job["id"])
+    return client.get(f"/api/jobs/{job['id']}").json()
 
 
 def create(client, video_id=VID, **kw):

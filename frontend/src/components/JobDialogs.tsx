@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { ApiError, api } from "../api";
 import { captionSourceLang, languageName } from "../format";
+import { useT } from "../i18n";
 import type { Job, JobOptionsValue } from "../types";
 import JobOptionsForm from "./JobOptionsForm";
 import Modal from "./Modal";
@@ -18,21 +19,22 @@ function CaptionChoice({
   onChange: (v: boolean) => void;
   modelHint: string;
 }) {
+  const t = useT();
   return (
     <fieldset>
-      <legend className="lab">文字來源</legend>
+      <legend className="lab">{t("caption.legend")}</legend>
       <div className="choice-list">
         <label className="choice">
           <input type="radio" name="text-source" checked={value} onChange={() => onChange(true)} />
           <span>
-            <strong>用 YouTube 人工字幕（{languageName(lang)}）</strong>
-            <small>直接用上傳者提供的字幕文字與時間，不跑語音辨識（較快）；講者辨識、字典照常</small>
+            <strong>{t("caption.use", { lang: languageName(lang) })}</strong>
+            <small>{t("caption.useHint")}</small>
           </span>
         </label>
         <label className="choice">
           <input type="radio" name="text-source" checked={!value} onChange={() => onChange(false)} />
           <span>
-            <strong>用模型轉錄</strong>
+            <strong>{t("caption.model")}</strong>
             <small>{modelHint}</small>
           </span>
         </label>
@@ -50,6 +52,7 @@ export function DeleteDialog({
   onClose: () => void;
   onDone: (mode: "transcript" | "audio" | "all", job: Job | null) => void;
 }) {
+  const t = useT();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const run = async (mode: "transcript" | "audio" | "all") => {
@@ -65,12 +68,12 @@ export function DeleteDialog({
   };
   return (
     <Modal
-      title="刪除"
+      title={t("del.title")}
       onClose={onClose}
       initialFocus="close"
       footer={
         <button type="button" className="btn" onClick={onClose}>
-          取消
+          {t("common.cancel")}
         </button>
       }
     >
@@ -78,24 +81,20 @@ export function DeleteDialog({
       <div className="choice-list">
         <button type="button" className="choice" disabled={busy || !job.has_transcript} onClick={() => run("transcript")}>
           <span>
-            <strong>只刪逐字稿</strong>
-            <small>逐字稿（含你的修改）刪除後無法復原；保留音檔，之後可以換模型或字典重新轉錄</small>
+            <strong>{t("del.transcript")}</strong>
+            <small>{t("del.transcriptHint")}</small>
           </span>
         </button>
         <button type="button" className="choice" disabled={busy || !job.has_audio} onClick={() => run("audio")}>
           <span>
-            <strong>只刪音檔</strong>
-            <small>
-              {job.source === "youtube"
-                ? "保留逐字稿；結果頁只能用嵌入的 YouTube 影片播放，也不能重新轉錄"
-                : "保留逐字稿；結果頁將無法播放，也不能重新轉錄"}
-            </small>
+            <strong>{t("del.audio")}</strong>
+            <small>{job.source === "youtube" ? t("del.audioHintYt") : t("del.audioHint")}</small>
           </span>
         </button>
         <button type="button" className="choice danger" disabled={busy} onClick={() => run("all")}>
           <span>
-            <strong>整筆刪除</strong>
-            <small>音檔與逐字稿全部刪除，無法復原</small>
+            <strong>{t("del.all")}</strong>
+            <small>{t("del.allHint")}</small>
           </span>
         </button>
       </div>
@@ -105,6 +104,7 @@ export function DeleteDialog({
 }
 
 export function RerunDialog({ job, onClose, onDone }: { job: Job; onClose: () => void; onDone: (j: Job) => void }) {
+  const t = useT();
   const [opts, setOpts] = useState<JobOptionsValue>({
     model: job.model,
     diarize: job.diarize,
@@ -130,23 +130,23 @@ export function RerunDialog({ job, onClose, onDone }: { job: Job; onClose: () =>
   };
   return (
     <Modal
-      title="重新轉錄"
+      title={t("rerun.title")}
       wide
       onClose={onClose}
       footer={
         <>
           <button type="button" className="btn" onClick={onClose}>
-            取消
+            {t("common.cancel")}
           </button>
           <button type="button" className="btn primary" disabled={busy} onClick={submit}>
-            {busy ? "送出中…" : "開始重新轉錄"}
+            {busy ? t("rerun.submitting") : t("rerun.submit")}
           </button>
         </>
       }
     >
-      <p>重新轉錄完成後會取代目前的逐字稿（含編輯內容）。</p>
+      <p>{t("rerun.note")}</p>
       {captionLang && (
-        <CaptionChoice lang={captionLang} value={useCaptions} onChange={setUseCaptions} modelHint="用下面選的辨識模型重新聽一次" />
+        <CaptionChoice lang={captionLang} value={useCaptions} onChange={setUseCaptions} modelHint={t("rerun.modelHint")} />
       )}
       <JobOptionsForm value={opts} onChange={setOpts} />
       {error && <p className="error">{error}</p>}
@@ -170,6 +170,7 @@ export function OptionsDialog({
   /** 409（已經開始處理或已結束）：關閉對話框並由呼叫端決定焦點；沒給就當成一般關閉 */
   onConflict?: () => void;
 }) {
+  const t = useT();
   const toast = useToast();
   const [opts, setOpts] = useState<JobOptionsValue>({
     model: job.model,
@@ -186,7 +187,7 @@ export function OptionsDialog({
     setError("");
     try {
       onDone(await api.updateOptions(job.id, opts, captionLang ? useCaptions : undefined));
-      toast("已更新設定");
+      toast(t("options.saved"));
     } catch (e) {
       const err = e as ApiError;
       if (err.status === 409) {
@@ -201,24 +202,24 @@ export function OptionsDialog({
   };
   return (
     <Modal
-      title="修改設定"
+      title={t("options.title")}
       wide
       onClose={onClose}
       footer={
         <>
           <button type="button" className="btn" onClick={onClose}>
-            取消
+            {t("common.cancel")}
           </button>
           <button type="button" className="btn primary" disabled={busy || !opts.model} onClick={submit}>
-            {busy ? "儲存中…" : "儲存"}
+            {busy ? t("common.saving") : t("common.save")}
           </button>
         </>
       }
     >
       <p className="break">{job.filename}</p>
-      <p>還在排隊中，開始處理前都可以修改；排隊順序不變。</p>
+      <p>{t("options.note")}</p>
       {captionLang && (
-        <CaptionChoice lang={captionLang} value={useCaptions} onChange={setUseCaptions} modelHint="用下面選的辨識模型轉錄" />
+        <CaptionChoice lang={captionLang} value={useCaptions} onChange={setUseCaptions} modelHint={t("options.modelHint")} />
       )}
       <JobOptionsForm value={opts} onChange={setOpts} />
       {error && <p className="error" role="alert">{error}</p>}

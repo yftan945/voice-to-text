@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../../api";
+import { useT } from "../../i18n";
 import type { Dictionary } from "../../types";
 
 /** 改字存檔後出現在泡泡下方：「把『X』→『Y』加入字典？」；可以調整字詞、選字典。 */
@@ -15,11 +16,17 @@ export default function DictSuggest({
   onClose: () => void;
   onAdded: (d: Dictionary) => void;
 }) {
+  const t = useT();
   const [wrong, setWrong] = useState(initial.wrong);
   const [correct, setCorrect] = useState(initial.correct);
   const [adjust, setAdjust] = useState(false);
   const [dictId, setDictId] = useState<number | null>(() => {
-    const last = Number(localStorage.getItem("v2t.lastDict"));
+    let last = NaN;
+    try {
+      last = Number(localStorage.getItem("v2t.lastDict"));
+    } catch {
+      /* 讀不到（無痕模式等）就用第一本 */
+    }
     return dicts.find((d) => d.id === last)?.id ?? dicts[0]?.id ?? null;
   });
   const [msg, setMsg] = useState<{ text: string; error: boolean } | null>(null);
@@ -32,9 +39,13 @@ export default function DictSuggest({
     setMsg(null);
     try {
       const d = await api.addRule(dictId, wrong.trim(), correct.trim());
-      localStorage.setItem("v2t.lastDict", String(dictId));
+      try {
+        localStorage.setItem("v2t.lastDict", String(dictId));
+      } catch {
+        /* 記不住上次選的字典不影響加入 */
+      }
       onAdded(d);
-      setMsg({ text: `已加入「${d.name}」`, error: false });
+      setMsg({ text: t("sug.added", { name: d.name }), error: false });
       window.setTimeout(onClose, 1200);
     } catch (e) {
       setMsg({ text: (e as Error).message, error: true });
@@ -43,26 +54,40 @@ export default function DictSuggest({
   };
 
   return (
-    <div className="suggest" role="group" aria-label="加入字典">
+    <div className="suggest" role="group" aria-label={t("sug.label")}>
       {adjust ? (
         <div className="suggest-edit">
-          <input className="field" value={wrong} onChange={(e) => setWrong(e.target.value)} aria-label="錯字" />
+          <input className="field" value={wrong} onChange={(e) => setWrong(e.target.value)} aria-label={t("sug.wrong")} />
           <span aria-hidden="true">→</span>
-          <input className="field" value={correct} onChange={(e) => setCorrect(e.target.value)} aria-label="正字" />
+          <input className="field" value={correct} onChange={(e) => setCorrect(e.target.value)} aria-label={t("sug.correct")} />
         </div>
       ) : (
         <span className="grow">
-          把<q>『{wrong}』</q>→<q>『{correct}』</q>加入字典？
+          {t("sug.before")}
+          <q>
+            {t("sug.quoteOpen")}
+            {wrong}
+            {t("sug.quoteClose")}
+          </q>
+          {t("sug.arrow")}
+          <q>
+            {t("sug.quoteOpen")}
+            {correct}
+            {t("sug.quoteClose")}
+          </q>
+          {t("sug.after")}
         </span>
       )}
       {dicts.length === 0 ? (
         <span className="help">
-          還沒有字典，先到<Link to="/dictionaries">字典</Link>新增一份。
+          {t("sug.noDicts.before")}
+          <Link to="/dictionaries">{t("sug.noDicts.link")}</Link>
+          {t("sug.noDicts.after")}
         </span>
       ) : (
         <span className="suggest-acts">
           {dicts.length > 1 && (
-            <select className="field" value={dictId ?? ""} onChange={(e) => setDictId(Number(e.target.value))} aria-label="字典">
+            <select className="field" value={dictId ?? ""} onChange={(e) => setDictId(Number(e.target.value))} aria-label={t("sug.dict")}>
               {dicts.map((d) => (
                 <option key={d.id} value={d.id}>
                   {d.name}
@@ -76,15 +101,15 @@ export default function DictSuggest({
             disabled={busy || !wrong.trim() || !correct.trim()}
             onClick={add}
           >
-            {dicts.length > 1 ? "加入" : `加入「${dict?.name ?? ""}」`}
+            {dicts.length > 1 ? t("sug.add") : t("sug.addTo", { name: dict?.name ?? "" })}
           </button>
           {!adjust && (
             <button type="button" className="tbtn" onClick={() => setAdjust(true)}>
-              調整字詞
+              {t("sug.adjust")}
             </button>
           )}
           <button type="button" className="tbtn" onClick={onClose}>
-            略過
+            {t("sug.skip")}
           </button>
         </span>
       )}

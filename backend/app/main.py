@@ -5,12 +5,13 @@ import logging
 from contextlib import asynccontextmanager
 from typing import Any
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import db
+from .i18n import ApiError, Message, api_error_handler, error_payload, msg, resolve_lang
 from .api import dictionaries, jobs, system, voiceprints, youtube
 from .config import settings
 from .jobs.worker import Worker
@@ -25,16 +26,16 @@ log = logging.getLogger("voice-to-text")
 FORM_OVERHEAD = 1024 * 1024
 
 
-def _upload_limit(method: str, path: str) -> tuple[int, str] | None:
+def _upload_limit(method: str, path: str) -> tuple[int, Message] | None:
     """各上傳端點的大小上限（bytes）與錯誤訊息；不是上傳端點回傳 None。"""
     if method != "POST":
         return None
     if path == "/api/jobs":
-        return settings.max_upload_mb * 1024 * 1024, f"檔案超過 {settings.max_upload_mb} MB"
+        return settings.max_upload_mb * 1024 * 1024, msg("upload.too_large", limit_mb=settings.max_upload_mb)
     if path == "/api/voiceprints":
         from .api.voiceprints import MAX_UPLOAD
 
-        return MAX_UPLOAD, f"樣本檔案太大（上限 {MAX_UPLOAD // 1024 // 1024} MB）"
+        return MAX_UPLOAD, msg("voiceprint.sample_too_large", limit_mb=MAX_UPLOAD // 1024 // 1024)
     return None
 
 
@@ -58,7 +59,9 @@ class UploadLimitMiddleware:
                 except ValueError:
                     length = None
                 if length is not None and length > limit[0] + FORM_OVERHEAD:
-                    resp = JSONResponse({"detail": limit[1]}, status_code=413, headers={"Connection": "close"})
+                    # 格式同 ApiError 的回應：{"detail", "code", "params"}，detail 依請求的語言
+                    lang = resolve_lang(Request(scope))
+                    resp = JSONResponse(error_payload(limit[1], lang), status_code=413, headers={"Connection": "close"})
                     await resp(scope, receive, send)
                     return
         await self.app(scope, receive, send)
@@ -115,6 +118,8 @@ def create_app(backend: Backend | None = None, start_worker: bool = True) -> Fas
                 manager.stop()
 
     app = FastAPI(title="voice-to-text", lifespan=lifespan)
+    # 給使用者看的錯誤依請求的語言回應（?lang=、Accept-Language），見 app/i18n.py
+    app.add_exception_handler(ApiError, api_error_handler)  # type: ignore[arg-type]
     app.add_middleware(UploadLimitMiddleware)
     app.add_middleware(CompressMiddleware)
     app.include_router(system.router)
@@ -138,7 +143,7 @@ def create_app(backend: Backend | None = None, start_worker: bool = True) -> Fas
         index = static / "index.html"
         if index.is_file():
             return FileResponse(index, headers={"Cache-Control": "no-cache"})
-        raise HTTPException(404, "前端尚未建置")
+        raise ApiError(404, "app.frontend_not_built")
 
     return app
 

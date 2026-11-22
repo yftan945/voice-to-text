@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
+import { useT } from "../i18n";
 import Icon from "./Icon";
 
 interface Props {
@@ -37,6 +38,7 @@ export function popInert() {
  * 關閉後焦點回到打開它的按鈕。
  */
 export default function Modal({ title, onClose, children, footer, initialFocus = "first", wide = false }: Props) {
+  const t = useT();
   const dialogRef = useRef<HTMLDivElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
   const onCloseRef = useRef(onClose);
@@ -99,7 +101,7 @@ export default function Modal({ title, onClose, children, footer, initialFocus =
       <div className={`modal${wide ? " wide" : ""}`} role="dialog" aria-modal="true" aria-label={title} ref={dialogRef}>
         <div className="modal-head">
           <h2>{title}</h2>
-          <button type="button" className="icon-btn" onClick={onClose} aria-label="關閉" ref={closeRef}>
+          <button type="button" className="icon-btn" onClick={onClose} aria-label={t("common.close")} ref={closeRef}>
             <Icon name="close" />
           </button>
         </div>
@@ -115,8 +117,8 @@ export default function Modal({ title, onClose, children, footer, initialFocus =
 export function ConfirmModal({
   title,
   message,
-  confirmLabel = "確定",
-  cancelLabel = "取消",
+  confirmLabel,
+  cancelLabel,
   danger = false,
   onConfirm,
   onClose,
@@ -129,6 +131,7 @@ export function ConfirmModal({
   onConfirm: () => void | Promise<unknown>;
   onClose: () => void;
 }) {
+  const t = useT();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const confirm = async () => {
@@ -148,10 +151,10 @@ export function ConfirmModal({
       footer={
         <>
           <button type="button" className="btn" onClick={onClose}>
-            {cancelLabel}
+            {cancelLabel ?? t("common.cancel")}
           </button>
           <button type="button" className={`btn ${danger ? "danger solid" : "primary"}`} disabled={busy} onClick={confirm}>
-            {busy ? "處理中…" : confirmLabel}
+            {busy ? t("common.processing") : (confirmLabel ?? t("common.ok"))}
           </button>
         </>
       }
@@ -169,7 +172,7 @@ export function PromptModal({
   description,
   initial = "",
   placeholder,
-  confirmLabel = "確定",
+  confirmLabel,
   onSubmit,
   onClose,
 }: {
@@ -182,6 +185,7 @@ export function PromptModal({
   onSubmit: (value: string) => void | Promise<unknown>;
   onClose: () => void;
 }) {
+  const t = useT();
   const [value, setValue] = useState(initial);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -205,10 +209,10 @@ export function PromptModal({
       footer={
         <>
           <button type="button" className="btn" onClick={onClose}>
-            取消
+            {t("common.cancel")}
           </button>
           <button type="button" className="btn primary" disabled={busy || !value.trim()} onClick={() => submit()}>
-            {busy ? "處理中…" : confirmLabel}
+            {busy ? t("common.processing") : (confirmLabel ?? t("common.ok"))}
           </button>
         </>
       }

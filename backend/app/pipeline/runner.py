@@ -12,6 +12,7 @@ from typing import Any, Callable
 
 from .. import dictionary as dict_mod
 from ..config import ModelOption, settings
+from ..i18n import Message, message_of, msg
 from . import audio as audio_mod
 from .align import group_by_language, unaligned
 from .assign import assign_speakers
@@ -23,22 +24,22 @@ from .postprocess import AUTO, apply_to_segments, mode_for_captions
 
 log = logging.getLogger(__name__)
 
-# 各步驟在整體進度條中的區間
-STAGES: dict[str, tuple[float, float, str]] = {
-    "convert": (0.00, 0.05, "轉檔中"),
-    "transcribe": (0.05, 0.60, "語音轉文字中"),
-    "align": (0.60, 0.66, "逐字對齊中"),
-    "diarize": (0.66, 0.92, "講者辨識中"),
-    "voiceprint": (0.92, 0.96, "聲紋比對中"),
-    "postprocess": (0.96, 1.00, "整理結果中"),
+# 各步驟在整體進度條中的區間；顯示文字是 i18n 的 stage.<key>
+STAGES: dict[str, tuple[float, float]] = {
+    "convert": (0.00, 0.05),
+    "transcribe": (0.05, 0.60),
+    "align": (0.60, 0.66),
+    "diarize": (0.66, 0.92),
+    "voiceprint": (0.92, 0.96),
+    "postprocess": (0.96, 1.00),
 }
 # 字幕路線：沒有轉錄與對齊，講者辨識占大部分時間
-CAPTION_STAGES: dict[str, tuple[float, float, str]] = {
-    "convert": (0.00, 0.10, "轉檔中"),
-    "captions": (0.10, 0.15, "讀取 YouTube 字幕中"),
-    "diarize": (0.15, 0.85, "講者辨識中"),
-    "voiceprint": (0.85, 0.95, "聲紋比對中"),
-    "postprocess": (0.95, 1.00, "整理結果中"),
+CAPTION_STAGES: dict[str, tuple[float, float]] = {
+    "convert": (0.00, 0.10),
+    "captions": (0.10, 0.15),
+    "diarize": (0.15, 0.85),
+    "voiceprint": (0.85, 0.95),
+    "postprocess": (0.95, 1.00),
 }
 
 
@@ -66,12 +67,13 @@ class JobOutput:
     playback_created: bool
 
 
-Reporter = Callable[[str, str, float], None]  # (stage key, 顯示文字, 整體進度 0~1)
+Reporter = Callable[[str, Message, float], None]  # (stage key, 顯示文字（訊息 stage.<key>）, 整體進度 0~1)
 
 
 def _reporter(report: Reporter, key: str,
-              stages: dict[str, tuple[float, float, str]] = STAGES) -> Callable[[float], None]:
-    lo, hi, label = stages[key]
+              stages: dict[str, tuple[float, float]] = STAGES) -> Callable[[float], None]:
+    lo, hi = stages[key]
+    label = msg(f"stage.{key}")
 
     def on_progress(frac: float) -> None:
         report(key, label, lo + (hi - lo) * max(0.0, min(1.0, frac)))
@@ -102,21 +104,21 @@ def _clock(seconds: float) -> str:
     return f"{h:02d}:{m:02d}:{s:02d}"
 
 
-def dropped_warning(dropped: list[dict[str, Any]], limit: int = 5) -> str:
+def dropped_warning(dropped: list[dict[str, Any]], limit: int = 5) -> Message:
     """被當成提示詞幻覺略過的段落：附時間與內容寫進警告，讓使用者知道哪裡被拿掉了。"""
     items = []
     for d in dropped[:limit]:
         text = str(d.get("text") or "")
         if len(text) > 40:
             text = text[:40] + "…"
-        items.append(f"[{_clock(d.get('start') or 0)}]「{text}」")
-    more = f"，另有 {len(dropped) - limit} 段" if len(dropped) > limit else ""
-    return f"略過 {len(dropped)} 段疑似提示詞幻覺（Whisper 把字典詞或提示句原樣吐出）：{'、'.join(items)}{more}"
+        items.append(msg("warning.dropped_item", time=_clock(d.get("start") or 0), text=text))
+    more = msg("warning.dropped_more", count=len(dropped) - limit) if len(dropped) > limit else ""
+    return msg("warning.dropped", count=len(dropped), items=items, more=more)
 
 
 def run(inp: JobInput, backend: Backend, report: Reporter, check_cancel: Callable[[], None]) -> JobOutput:
     work_wav = settings.work_dir / f"{inp.job_id}.wav"
-    warnings: list[str] = []
+    warnings: list[Message] = []  # 可延後翻譯的訊息（見 app/i18n.py）
     oom = False
     use_captions = bool(inp.captions)
     stages = CAPTION_STAGES if use_captions else STAGES
@@ -135,7 +137,7 @@ def run(inp: JobInput, backend: Backend, report: Reporter, check_cancel: Callabl
                 audio_mod.make_playback(inp.source, inp.playback, stream)
                 playback_created = True
             except audio_mod.AudioError as e:
-                warnings.append(f"無法產生播放用音檔：{e}")
+                warnings.append(msg("warning.playback_failed", error=e.msg))
         audio = audio_mod.load_wav(work_wav)
         duration = len(audio) / audio_mod.SAMPLE_RATE
         stage("convert")(1.0)
@@ -173,7 +175,7 @@ def run(inp: JobInput, backend: Backend, report: Reporter, check_cancel: Callabl
                     if is_oom(e):
                         raise
                     log.exception("逐字對齊失敗（%s）", lang)
-                    warnings.append(f"逐字對齊失敗（{lang}），改用段落時間：{e}")
+                    warnings.append(msg("warning.align_failed", lang=lang, error=message_of(e)))
                     aligned.extend(unaligned(group))
                 on_al((i + 1) / len(groups))
                 check_cancel()
@@ -192,10 +194,10 @@ def run(inp: JobInput, backend: Backend, report: Reporter, check_cancel: Callabl
             except Exception as e:  # noqa: BLE001
                 if is_oom(e):
                     raise
-                msg = str(e) if isinstance(e, DiarizationUnavailable) else f"講者辨識失敗：{e}"
+                reason = e.msg if isinstance(e, DiarizationUnavailable) else msg("diarize.failed", error=message_of(e))
                 log.warning("講者辨識失敗：%s", e, exc_info=not isinstance(e, DiarizationUnavailable))
-                diar_info["error"] = msg
-                warnings.append(msg)
+                diar_info["error"] = reason
+                warnings.append(reason)
             check_cancel()
 
         # 5. 逐字指派講者、換講者處切句（字幕沒有逐字時間時整段指派，不切句）
@@ -216,7 +218,7 @@ def run(inp: JobInput, backend: Backend, report: Reporter, check_cancel: Callabl
                 if is_oom(e):
                     raise
                 log.exception("計算講者聲紋失敗")
-                warnings.append(f"計算講者聲紋失敗，無法比對聲紋庫：{e}")
+                warnings.append(msg("warning.voiceprint_failed", error=message_of(e)))
             on_v(1.0)
             (embeddings,) = relabel_by_appearance(out_segments, embeddings)
             from ..voiceprint import match
@@ -249,7 +251,7 @@ def run(inp: JobInput, backend: Backend, report: Reporter, check_cancel: Callabl
             text_source = {"type": "youtube_captions", "lang": inp.caption_lang,
                            "label": caption_label(inp.caption_lang)}
         else:
-            text_source = {"type": "model", "model": inp.model.id, "label": inp.model.label}
+            text_source = {"type": "model", "model": inp.model.id, "label": inp.model.label_msg()}
         transcript = {
             "version": 1,
             "language": language,

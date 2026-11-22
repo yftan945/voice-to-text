@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import Icon from "../../components/Icon";
+import { useT } from "../../i18n";
 import { avatarChar, colorClass, speakerName } from "../../lib/speakers";
 import type { Segment, Transcript } from "../../types";
 
@@ -37,6 +38,7 @@ export default function BubbleMenu({
   onSetSpeaker: (label: string) => void;
   onNewSpeaker: (name: string) => Promise<boolean>;
 }) {
+  const tx = useT();
   const ref = useRef<HTMLDivElement>(null);
   const [mode, setMode] = useState<"main" | "speaker" | "new">("main");
   const [name, setName] = useState("");
@@ -156,14 +158,14 @@ export default function BubbleMenu({
         className={`menu ctx${mode !== "main" ? " pick-mode" : ""}`}
         ref={ref}
         role={mode === "main" ? "menu" : "dialog"}
-        aria-label={mode === "main" ? "這一句的動作" : "換講者"}
+        aria-label={mode === "main" ? tx("tr.lineActions") : tx("bubble.swap")}
         onKeyDown={onKey}
       >
         {mode === "main" ? (
           <>
             <button type="button" role="menuitem" className="mi" disabled={readOnly} onClick={onEditText}>
               <Icon name="edit" />
-              編輯文字
+              {tx("bubble.edit")}
             </button>
             <button
               type="button"
@@ -173,20 +175,20 @@ export default function BubbleMenu({
               onClick={() => setMode("speaker")}
             >
               <Icon name="swap" />
-              換講者
+              {tx("bubble.swap")}
             </button>
             <button type="button" role="menuitem" className="mi" disabled={!canSeek} onClick={onPlay}>
               <Icon name="play" />
-              從這裡播放
+              {tx("bubble.play")}
             </button>
             <button type="button" role="menuitem" className="mi" onClick={onCopy}>
               <Icon name="copy" />
-              複製
+              {tx("bubble.copy")}
             </button>
           </>
         ) : (
           <div className="pick">
-            <div className="mh">這句話是誰說的</div>
+            <div className="mh">{tx("bubble.who")}</div>
             <div className="pick-row">
               {labels.map((l, i) => {
                 const nm = speakerName(t, l);
@@ -210,7 +212,7 @@ export default function BubbleMenu({
                 <span className="av" aria-hidden="true">
                   <Icon name="plus" />
                 </span>
-                <span className="pick-name">新講者</span>
+                <span className="pick-name">{tx("bubble.newSpeaker")}</span>
               </button>
             </div>
             {mode === "new" && (
@@ -224,12 +226,12 @@ export default function BubbleMenu({
                 <input
                   className="field"
                   value={name}
-                  placeholder="新講者名稱，例如：Alex"
-                  aria-label="新講者名稱"
+                  placeholder={tx("bubble.newPlaceholder")}
+                  aria-label={tx("bubble.newLabel")}
                   onChange={(e) => setName(e.target.value)}
                 />
                 <button type="submit" className="btn primary" disabled={!name.trim() || busy}>
-                  建立
+                  {tx("bubble.create")}
                 </button>
               </form>
             )}

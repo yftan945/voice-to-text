@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { MenuButton } from "../../components/Menu";
 import { duration } from "../../format";
+import { useT } from "../../i18n";
 import { avatarChar, colorClass, defaultSpeakerName, speakerName, type SpeakerStat } from "../../lib/speakers";
 import type { EditOp, Transcript } from "../../types";
 
@@ -27,6 +28,7 @@ export default function SpeakerList({
   onRequestMerge: (source: string, target: string) => void;
   onRequestVoiceprint: (label: string) => void;
 }) {
+  const tx = useT();
   const [renaming, setRenaming] = useState<string | null>(null);
   const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
@@ -35,7 +37,7 @@ export default function SpeakerList({
     if (readOnly) setRenaming(null);
   }, [readOnly]);
 
-  if (labels.length === 0) return <p className="help">這份逐字稿沒有區分講者。</p>;
+  if (labels.length === 0) return <p className="help">{tx("spk.none")}</p>;
 
   return (
     <ul className="spk-list">
@@ -65,7 +67,7 @@ export default function SpeakerList({
                 }}
               >
                 <label className="lab" htmlFor={`rename-${l}`}>
-                  {display} 的名字
+                  {tx("spk.nameOf", { name: display })}
                 </label>
                 <div className="spk-rename-row">
                   <input
@@ -77,10 +79,10 @@ export default function SpeakerList({
                     onChange={(e) => setName(e.target.value)}
                   />
                   <button type="submit" className="btn primary" disabled={busy}>
-                    儲存
+                    {tx("common.save")}
                   </button>
                   <button type="button" className="btn" onClick={() => setRenaming(null)}>
-                    取消
+                    {tx("common.cancel")}
                   </button>
                 </div>
               </form>
@@ -96,17 +98,17 @@ export default function SpeakerList({
                 {/* 原本的代號（SPEAKER_xx）只出現在這一行；每一項各自不換行，「2 分 53 秒」不會被拆開 */}
                 <div className="spk-stat num">
                   {!l.startsWith("MANUAL_") && <span>{l}</span>}
-                  <span>{st.count} 段</span>
+                  <span>{tx("spk.segs", { n: st.count })}</span>
                   <span>{duration(st.seconds)}</span>
                 </div>
                 <div className={`spk-vp${info?.voiceprint_id != null ? " ok" : ""}`}>
                   {info?.voiceprint_id != null
                     ? info.similarity != null
-                      ? `已比對到聲紋，相似度 ${info.similarity.toFixed(2)}`
-                      : "已存成聲紋"
+                      ? tx("spk.matched", { sim: info.similarity.toFixed(2) })
+                      : tx("spk.saved")
                     : canVoiceprint
-                      ? "尚無聲紋"
-                      : "手動新增或已合併，沒有聲紋資料"}
+                      ? tx("spk.noVp")
+                      : tx("spk.noVpData")}
                 </div>
                 {!readOnly && (
                   <div className="spk-acts">
@@ -117,17 +119,17 @@ export default function SpeakerList({
                         setName(info?.name ?? "");
                         setRenaming(l);
                       }}
-                      aria-label={`改名：${display}`}
+                      aria-label={tx("spk.renameLabel", { name: display })}
                     >
-                      改名
+                      {tx("common.rename")}
                     </button>
                     {labels.length > 1 && (
                       <MenuButton
                         className="tbtn"
                         align="left"
-                        aria-label={`把「${display}」合併到…`}
+                        aria-label={tx("spk.mergeLabel", { name: display })}
                         items={() => [
-                          { header: `把「${display}」合併到` },
+                          { header: tx("spk.mergeHeader", { name: display }) },
                           ...labels
                             .filter((x) => x !== l)
                             .map((x) => ({
@@ -137,12 +139,12 @@ export default function SpeakerList({
                             })),
                         ]}
                       >
-                        合併到…
+                        {tx("spk.merge")}
                       </MenuButton>
                     )}
                     {canVoiceprint && (
                       <button type="button" className="tbtn" onClick={() => onRequestVoiceprint(l)}>
-                        {info?.voiceprint_id != null ? "更新聲紋" : "存成聲紋"}
+                        {info?.voiceprint_id != null ? tx("spk.updateVp") : tx("spk.saveVp")}
                       </button>
                     )}
                   </div>

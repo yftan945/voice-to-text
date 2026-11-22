@@ -8,45 +8,68 @@ import { ConfirmModal } from "../components/Modal";
 import StepBar from "../components/StepBar";
 import Tick from "../components/Tick";
 import { captionSourceLang, dateTime, duration, etaText, languageName } from "../format";
-import { modelLabel, useIsMobile, useModels, useStoredFlag, useUnsavedBlocker } from "../hooks";
+import { modelLabel, modelShort, useIsMobile, useModels, useStoredFlag, useUnsavedBlocker } from "../hooks";
+import { useLang, useT, type StrKey } from "../i18n";
 import { useJobs } from "../jobs";
 import { PlayerContext, PlayerStore } from "../lib/player";
 import { THEME_LABEL, useTheme, type ThemeChoice } from "../theme";
-import type { Job, TranscriptPayload } from "../types";
+import type { Job, Transcript, TranscriptPayload } from "../types";
 import ResultView, { mediaChoice, type MediaMode } from "./result/ResultView";
 
-const FORMATS = (timestamps: boolean): [string, string][] => [
-  ["txt", timestamps ? "TXT（含時間）" : "TXT（純文字）"],
-  ["md", "Markdown"],
-  ["srt", "SRT 字幕"],
-  ["vtt", "VTT 字幕"],
-  ["json", "JSON"],
+/** 匯出格式：[格式, 名稱（i18n 字典的 key）] */
+const FORMATS = (timestamps: boolean): [string, StrKey][] => [
+  ["txt", timestamps ? "export.txtTime" : "export.txtPlain"],
+  ["md", "export.md"],
+  ["srt", "export.srt"],
+  ["vtt", "export.vtt"],
+  ["json", "export.json"],
 ];
+
+/**
+ * 換語言時只換掉後端依語言 render 的欄位（警告、講者辨識失敗原因、文字來源說明），
+ * 逐字稿內容（段落、講者）沿用原本的物件，結果區不用重來，播放、編輯中的狀態與開著的對話框都保留。
+ */
+function withTexts(t: Transcript, from: Transcript): Transcript {
+  return {
+    ...t,
+    warnings: from.warnings,
+    diarization: from.diarization ? { ...t.diarization, error: from.diarization.error } : t.diarization,
+    text_source: t.text_source && from.text_source ? { ...t.text_source, label: from.text_source.label } : t.text_source,
+  };
+}
+
+/** 首字大寫（英文的錯誤原因寫成句中片語，單獨當提示文字時要大寫；中文不受影響） */
+const capFirst = (s: string) => s.charAt(0).toLocaleUpperCase() + s.slice(1);
 
 /** 處理中／排隊中的進度：五格步驟、順位、預估時間、取消。 */
 function Progress({ job, hasPayload, onCancel }: { job: Job; hasPayload: boolean; onCancel: () => void }) {
+  const t = useT();
   return (
     <div className="r-progress" aria-live="polite">
       <div className="r-progress-head">
         <b className={job.status === "running" ? "run" : ""}>
           {job.status === "queued"
             ? job.queue_rank
-              ? `排隊中，第 ${job.queue_rank} 位${job.queue_position ? `（前面還有 ${job.queue_position} 個任務）` : ""}`
-              : "排隊中"
+              ? t("job.queuedRank", { rank: job.queue_rank }) +
+                (job.queue_position ? t("job.ahead", { n: job.queue_position }) : "")
+              : t("job.queued")
             : job.cancel_requested
-              ? "取消中…"
+              ? t("job.canceling")
               : `${job.stage} ${Math.round(job.progress * 100)}%`}
         </b>
         <span className="grow" />
         <button type="button" className="tbtn danger" onClick={onCancel} disabled={job.cancel_requested}>
-          {job.cancel_requested ? "取消中…" : "取消任務"}
+          {job.cancel_requested ? t("job.canceling") : t("job.cancel")}
         </button>
       </div>
       {job.status === "running" && <StepBar job={job} />}
       <p className="help">
-        {etaText(job)}（{job.estimate_basis === "history" ? "依過去實際處理速度估算" : "依預設速度估算"}，僅供參考）。
-        {job.source === "youtube" ? "由伺服器下載與處理" : "檔案已上傳完成"}，關掉頁面也會繼續跑。
-        {hasPayload && "完成後會取代下面目前的逐字稿；處理期間不能編輯。"}
+        {t("job.etaNote", {
+          eta: etaText(job),
+          basis: job.estimate_basis === "history" ? t("job.basisHistory") : t("job.basisDefault"),
+        })}
+        {job.source === "youtube" ? t("job.srcYt") : t("job.srcFile")}
+        {hasPayload && t("job.willReplace")}
       </p>
     </div>
   );
@@ -54,6 +77,8 @@ function Progress({ job, hasPayload, onCancel }: { job: Job; hasPayload: boolean
 
 /** 結果頁：標題與工具、處理進度或失敗原因、逐字稿（ResultView）。 */
 export default function JobPage() {
+  const t = useT();
+  const lang = useLang();
   const { id = "" } = useParams();
   const navigate = useNavigate();
   const isMobile = useIsMobile();
@@ -80,20 +105,27 @@ export default function JobPage() {
   const [timeline, setTimeline] = useStoredFlag("v2t.timeline", true);
   const [follow, setFollow] = useStoredFlag("v2t.follow", true);
   const [mode, setMode] = useState<MediaMode>("video");
-  const [videoError, setVideoError] = useState<string | null>(null);
+  // 影片無法播放的原因存 i18n key（換語言時跟著換）
+  const [videoError, setVideoError] = useState<StrKey | null>(null);
   const [editDirty, setEditDirty] = useState(false);
   const store = useMemo(() => new PlayerStore(0), [id]);
 
   // 有還沒儲存的編輯：關閉分頁、站內換頁前先確認
   const blocker = useUnsavedBlocker(editDirty);
 
+  // 讀取逐字稿的序號：每次重新讀取（整份或只換語言）都 +1，晚到的舊回應不套用
+  const txSeq = useRef(0);
   const loadTranscript = useCallback(() => {
+    const seq = ++txSeq.current;
     api.transcript(id).then(
       (p) => {
+        if (seq !== txSeq.current) return;
         setPayload(p);
         setVersion((v) => v + 1);
       },
-      () => setPayload(null),
+      () => {
+        if (seq === txSeq.current) setPayload(null);
+      },
     );
   }, [id]);
 
@@ -102,6 +134,7 @@ export default function JobPage() {
     setPayload(null);
     setError("");
     setVideoError(null);
+    txSeq.current += 1; // 上一筆任務還在路上的逐字稿不要套到這一筆
     api.job(id).then(
       (j) => {
         setJob(j);
@@ -148,26 +181,60 @@ export default function JobPage() {
     }
   }, [live, loaded, jobs, navigate, loadTranscript]);
 
+  // 換語言時重新讀任務與逐字稿（後端依語言回傳的錯誤、警告換成新語言）。
+  // 逐字稿只合併依語言 render 的欄位（見 withTexts），不換版本號：結果區不重來，播放與編輯中的狀態都保留。
+  // 晚到的舊回應不套用；讀取失敗就維持原本的內容。
+  const langRef = useRef(lang);
+  const langSeq = useRef(0);
   useEffect(() => {
-    document.title = job ? `${job.filename}・語音轉文字` : "語音轉文字";
+    if (langRef.current === lang) return;
+    langRef.current = lang;
+    const seq = ++langSeq.current;
+    const before = jobRef.current;
+    api.job(id).then(
+      (j) => {
+        // 這段期間 SSE 已經送來較新的任務（換語言時會重新連線、送整份清單）就不用這份
+        if (seq === langSeq.current && jobRef.current === before) setJob(j);
+      },
+      () => {
+        /* 讀不到就維持原狀 */
+      },
+    );
+    if (!before?.has_transcript) return;
+    const txAt = ++txSeq.current;
+    api.transcript(id).then(
+      (p) => {
+        if (txAt !== txSeq.current) return;
+        setPayload((prev) =>
+          prev ? { ...prev, original: withTexts(prev.original, p.original), current: withTexts(prev.current, p.current) } : prev,
+        );
+      },
+      () => {
+        /* 讀不到就保留原本的逐字稿 */
+      },
+    );
+  }, [lang, id, setJob]);
+
+  useEffect(() => {
+    document.title = job ? t("app.title", { page: job.filename }) : t("app.name");
     return () => {
-      document.title = "語音轉文字";
+      document.title = t("app.name");
     };
-  }, [job?.filename]);
+  }, [job?.filename, t]);
 
   if (error)
     return (
       <main className="page">
         <p className="err">{error}</p>
         <p>
-          <Link to="/">回到錄音</Link>
+          <Link to="/">{t("job.back")}</Link>
         </p>
       </main>
     );
   if (!job)
     return (
       <main className="page">
-        <p className="empty">載入中…</p>
+        <p className="empty">{t("common.loading")}</p>
       </main>
     );
 
@@ -185,27 +252,27 @@ export default function JobPage() {
   const showToggle = !!payload && !!media.videoId && media.canPlay;
 
   const actionItems = (): MenuItem[] => [
-    { label: "重新轉錄…", disabled: !job.has_audio || active, onSelect: () => setRerunning(true) },
-    ...(payload ? [{ label: "還原原始結果…", disabled: !payload.edited || active, onSelect: () => setConfirmReset(true) }] : []),
-    ...(job.source === "youtube" && job.source_url ? [{ label: "在 YouTube 開啟", href: job.source_url, external: true }] : []),
+    { label: t("job.rerunItem"), disabled: !job.has_audio || active, onSelect: () => setRerunning(true) },
+    ...(payload ? [{ label: t("job.resetItem"), disabled: !payload.edited || active, onSelect: () => setConfirmReset(true) }] : []),
+    ...(job.source === "youtube" && job.source_url ? [{ label: t("job.openYt"), href: job.source_url, external: true }] : []),
     { sep: true },
-    { label: "刪除…", danger: true, disabled: active, onSelect: () => setDeleting(true) },
+    { label: t("job.deleteItem"), danger: true, disabled: active, onSelect: () => setDeleting(true) },
   ];
   const exportItems = (): MenuItem[] =>
-    FORMATS(timeline).map(([f, label]) => ({ label: `匯出 ${label}`, href: exportUrl(job.id, f, timeline) }));
+    FORMATS(timeline).map(([f, label]) => ({ label: t("export.item", { format: t(label) }), href: exportUrl(job.id, f, timeline) }));
   const mobileItems = (): MenuItem[] => [
     ...(payload
       ? [
-          { header: "匯出" },
+          { header: t("export.title") },
           ...exportItems(),
           { sep: true } as MenuItem,
-          { label: "顯示時間碼", checked: timeline, onSelect: () => setTimeline(!timeline) },
-          { label: "跟隨播放", checked: follow, onSelect: () => setFollow(!follow) },
+          { label: t("job.showTimestamps"), checked: timeline, onSelect: () => setTimeline(!timeline) },
+          { label: t("job.follow"), checked: follow, onSelect: () => setFollow(!follow) },
           ...(showToggle
             ? [
-                { header: "播放來源" },
-                { label: "YouTube 影片", checked: media.useVideo, disabled: !media.videoOk, onSelect: () => setMode("video") },
-                { label: "伺服器保留的音訊", checked: media.useAudio, onSelect: () => setMode("audio") },
+                { header: t("job.mediaSource") },
+                { label: t("job.srcVideo"), checked: media.useVideo, disabled: !media.videoOk, onSelect: () => setMode("video") },
+                { label: t("job.srcAudio"), checked: media.useAudio, onSelect: () => setMode("audio") },
               ]
             : []),
           { sep: true } as MenuItem,
@@ -213,9 +280,9 @@ export default function JobPage() {
       : []),
     ...actionItems(),
     { sep: true },
-    { header: "外觀" },
+    { header: t("theme.header") },
     ...(["system", "light", "dark"] as ThemeChoice[]).map((c) => ({
-      label: THEME_LABEL[c],
+      label: t(THEME_LABEL[c]),
       checked: theme === c,
       onSelect: () => setTheme(c),
     })),
@@ -232,23 +299,29 @@ export default function JobPage() {
       {job.status === "failed" && (
         <div className="note error-note">
           <p>
-            <b>轉錄失敗：</b>
+            <b>{t("job.failed")}</b>
             {job.error}
           </p>
-          {payload && <p>下面是上一次成功的結果。</p>}
+          {payload && <p>{t("job.lastGood")}</p>}
           {job.has_audio && (
             <div className="row">
               <button type="button" className="btn" onClick={() => setRerunning(true)}>
-                重新轉錄
+                {t("rerun.title")}
               </button>
             </div>
           )}
         </div>
       )}
-      {job.status === "canceled" && <p className="note">任務已取消。{job.has_audio && "可以用「⋯」裡的重新轉錄再跑一次。"}</p>}
+      {job.status === "canceled" && (
+        <p className="note">
+          {t("job.canceled")}
+          {job.has_audio && t("job.canceledRerun")}
+        </p>
+      )}
       {!active && job.status === "done" && !job.has_transcript && (
         <p className="note">
-          逐字稿已刪除。{job.has_audio ? "可以用其他模型或字典重新轉錄。" : "音檔也已刪除，無法重新轉錄。"}
+          {t("job.transcriptDeleted")}
+          {job.has_audio ? t("job.canRerun") : t("job.cantRerun")}
         </p>
       )}
     </>
@@ -258,7 +331,7 @@ export default function JobPage() {
     <PlayerContext.Provider value={store}>
       <main className={`result${payload ? "" : " no-transcript"}${media.useVideo && payload ? " with-video" : ""}`}>
         <header className="r-head">
-          <Link className="back" to="/" aria-label="回到錄音">
+          <Link className="back" to="/" aria-label={t("job.back")}>
             <Icon name="chevL" />
           </Link>
           <div className="titles">
@@ -267,48 +340,56 @@ export default function JobPage() {
               <span className="m-date">{dateTime(job.created_at)}</span>
               <span>{duration(job.duration)}</span>
               <span className="m-src">
-                {captionLang ? `YouTube 人工字幕（${languageName(captionLang)}）` : modelLabel(models, job.model)}
+                {captionLang
+                  ? t("queue.captions", { lang: languageName(captionLang) })
+                  : isMobile
+                    ? t("home.modelShort", { name: modelShort(models, job.model) })
+                    : modelLabel(models, job.model)}
               </span>
               <span className="m-spk">
-                {job.diarize ? (job.num_speakers ? `指定 ${job.num_speakers} 位講者` : "自動判斷講者") : "不分講者"}
+                {job.diarize
+                  ? job.num_speakers
+                    ? t("job.speakersFixed", { n: job.num_speakers })
+                    : t("job.speakersAuto")
+                  : t("queue.noDiarize")}
               </span>
               {job.source === "youtube" && job.yt_channel && <span className="m-ch">{job.yt_channel}</span>}
               {job.source === "youtube" && job.source_url && (
                 <a className="m-yt" href={job.source_url} target="_blank" rel="noopener noreferrer">
-                  在 YouTube 開啟
+                  {t("job.openYt")}
                 </a>
               )}
-              {payload?.edited && <span className="m-ed">已修改</span>}
+              {payload?.edited && <span className="m-ed">{t("job.edited")}</span>}
             </p>
           </div>
           <div className="head-tools">
             {payload && (
               <Tick on={timeline} onChange={setTimeline} className="d-only">
-                時間碼
+                {t("job.timestamps")}
               </Tick>
             )}
             {showToggle && (
-              <div className="seg-toggle d-only" role="group" aria-label="播放來源">
+              <div className="seg-toggle d-only" role="group" aria-label={t("job.mediaSource")}>
                 <button
                   type="button"
                   aria-pressed={media.useVideo}
                   disabled={!media.videoOk}
-                  title={videoError ?? "用嵌入的 YouTube 影片播放"}
+                  title={videoError ? capFirst(t(videoError)) : t("job.videoTitle")}
                   onClick={() => setMode("video")}
                 >
-                  影片
+                  {t("job.video")}
                 </button>
-                <button type="button" aria-pressed={media.useAudio} title="用伺服器保留的音訊播放" onClick={() => setMode("audio")}>
-                  音訊
+                <button type="button" aria-pressed={media.useAudio} title={t("job.audioTitle")} onClick={() => setMode("audio")}>
+                  {t("job.audio")}
                 </button>
               </div>
             )}
             {payload && (
-              <MenuButton className="btn d-only" items={exportItems} aria-label="匯出">
-                匯出
+              <MenuButton className="btn d-only" items={exportItems} aria-label={t("export.title")}>
+                {t("export.title")}
               </MenuButton>
             )}
-            <MenuButton className="btn icon" items={isMobile ? mobileItems : actionItems} aria-label="更多動作">
+            <MenuButton className="btn icon" items={isMobile ? mobileItems : actionItems} aria-label={t("job.more")}>
               <Icon name="more" />
             </MenuButton>
           </div>
@@ -349,7 +430,10 @@ export default function JobPage() {
                 return navigate("/");
               }
               setJob(j);
-              if (m === "transcript") setPayload(null);
+              if (m === "transcript") {
+                txSeq.current += 1; // 還在路上的讀取不要把刪掉的逐字稿放回來
+                setPayload(null);
+              }
             }}
           />
         )}
@@ -365,14 +449,16 @@ export default function JobPage() {
         )}
         {confirmReset && (
           <ConfirmModal
-            title="還原原始結果"
-            message="所有改過的文字、講者與名稱都會回到轉錄完成時的樣子，這個動作無法復原。"
-            confirmLabel="還原"
+            title={t("job.resetTitle")}
+            message={t("job.resetMsg")}
+            confirmLabel={t("job.resetConfirm")}
             danger
             onClose={() => setConfirmReset(false)}
             onConfirm={async () => {
               try {
-                setPayload(await api.resetEdits(job.id));
+                const p = await api.resetEdits(job.id);
+                txSeq.current += 1;
+                setPayload(p);
               } catch (e) {
                 if (e instanceof ApiError && e.status === 409) {
                   setConfirmReset(false);
@@ -390,10 +476,10 @@ export default function JobPage() {
         )}
         {blocker.state === "blocked" && (
           <ConfirmModal
-            title="放棄修改？"
-            message="這一句還沒儲存，離開這個頁面會放棄修改。"
-            confirmLabel="離開"
-            cancelLabel="繼續編輯"
+            title={t("common.discardTitle")}
+            message={t("job.leaveMsg")}
+            confirmLabel={t("common.leave")}
+            cancelLabel={t("common.keepEditing")}
             danger
             onClose={() => blocker.reset()}
             onConfirm={() => blocker.proceed()}

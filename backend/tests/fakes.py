@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import numpy as np
 
+from app import i18n
 from app.pipeline import audio as audio_mod
 from app.pipeline.diarize import DiarizationUnavailable
 
@@ -89,4 +90,11 @@ def patch_audio(monkeypatch, seconds=4.0):
     monkeypatch.setattr(audio_mod, "load_wav", load_wav)
 
 
-__all__ = ["FakeBackend", "patch_audio", "DiarizationUnavailable"]
+def zh(value):
+    """資料庫或例外裡的訊息（code＋params）render 成 zh-TW 文字；一般字串原樣（舊資料）。清單逐項處理。"""
+    if isinstance(value, list):
+        return [i18n.localize(v, "zh-TW") for v in value]
+    return i18n.localize(value, "zh-TW")
+
+
+__all__ = ["FakeBackend", "patch_audio", "DiarizationUnavailable", "zh"]

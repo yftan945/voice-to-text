@@ -17,7 +17,7 @@ from app.pipeline.backend import GpuBackend
 from app.pipeline.diarize import GATED_HINT, DiarizationUnavailable
 from app.pipeline.models import ModelManager
 
-from fakes import FakeBackend, patch_audio
+from fakes import FakeBackend, patch_audio, zh
 
 
 class GatedRepoError(Exception):
@@ -123,13 +123,13 @@ def run_job(manager=None):
 
 def assert_transcript_without_speakers(job, reason):
     assert job["status"] == "done" and job["has_transcript"]
-    assert any(reason in w for w in job["warnings"])  # 原因記在任務的警告
+    assert any(reason in w for w in zh(job["warnings"]))  # 原因記在任務的警告
     original, _ = storage.load(job["id"])
     assert [s["text"] for s in original["segments"]] == ["大家好", "我是亞當"]
     assert all(s["speaker"] is None for s in original["segments"])
     assert original["speakers"] == {}
     d = original["diarization"]
-    assert d["enabled"] is True and d["ok"] is False and reason in d["error"]
+    assert d["enabled"] is True and d["ok"] is False and reason in zh(d["error"])
 
 
 def test_no_token_job_still_outputs_transcript(data_dir, monkeypatch, gpu_steps):

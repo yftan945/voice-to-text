@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { ApiError, api, loadModels, newBatchId, uploadJob } from "../../api";
 import type { YoutubePick } from "../../components/YoutubeInput";
+import { msg, textMsg, type Msg } from "../../i18n";
 import type { JobOptionsValue } from "../../types";
 
 export type ItemState = "pending" | "uploading" | "done" | "failed";
@@ -16,7 +17,8 @@ export interface UploadItem {
   state: ItemState;
   loaded: number;
   total: number;
-  error: string;
+  /** 失敗原因（前端自己的字樣存 i18n key，換語言時跟著換）；沒有為 null */
+  error: Msg | null;
   /** 失敗原因重試也不會好（例如檔案太大、沒有音軌）時不顯示重試 */
   retryable: boolean;
   jobId: string | null;
@@ -39,7 +41,7 @@ const blank = (key: number): Omit<UploadItem, "file" | "video" | "total"> => ({
   speakers: "inherit",
   state: "pending",
   loaded: 0,
-  error: "",
+  error: null,
   retryable: true,
   jobId: null,
 });
@@ -54,7 +56,8 @@ export function useUploader(onFinished: (items: UploadItem[], added: UploadItem[
   // 上傳迴圈是 async，讀最新的清單要用 ref（state 要等 render 後才更新）
   const itemsRef = useRef<UploadItem[]>([]);
   const [uploading, setUploading] = useState(false);
-  const [notice, setNotice] = useState("");
+  /** 清單上方的提示（i18n 字典的 key，換語言時跟著換）；沒有為 "" */
+  const [notice, setNotice] = useState<"" | "up.dupVideos" | "up.dupFiles">("");
   const keySeq = useRef(0);
   const runningRef = useRef(false);
   const stopRef = useRef(false);
@@ -89,7 +92,7 @@ export function useUploader(onFinished: (items: UploadItem[], added: UploadItem[
       seen.add(v.videoId);
       fresh.push(v);
     }
-    setNotice(fresh.length < videos.length ? "已略過清單裡重複的影片。" : "");
+    setNotice(fresh.length < videos.length ? "up.dupVideos" : "");
     commit([...existing, ...fresh.map((video) => ({ ...blank(++keySeq.current), file: null, video, total: 0 }))]);
     return fresh.length;
   };
@@ -97,7 +100,7 @@ export function useUploader(onFinished: (items: UploadItem[], added: UploadItem[
   const addFiles = (files: File[]) => {
     const existing = itemsRef.current;
     const fresh = files.filter((f) => !existing.some((i) => i.state !== "done" && i.file && sameFile(i.file, f)));
-    setNotice(fresh.length < files.length ? "已略過清單裡重複的檔案。" : "");
+    setNotice(fresh.length < files.length ? "up.dupFiles" : "");
     commit([...existing, ...fresh.map((file) => ({ ...blank(++keySeq.current), file, video: null, total: file.size }))]);
   };
 
@@ -124,28 +127,28 @@ export function useUploader(onFinished: (items: UploadItem[], added: UploadItem[
       const itemOpts = { ...o, numSpeakers: resolveSpeakers(next.speakers, o) };
       if (next.video) {
         // YouTube：只建立任務（伺服器下載），不用上傳
-        patch(next.key, { state: "uploading", error: "" });
+        patch(next.key, { state: "uploading", error: null });
         try {
           const job = await api.createYoutubeJob(next.video.videoId, itemOpts, batchId);
           patch(next.key, { state: "done", jobId: job.id });
         } catch (e) {
           const err = e as ApiError;
           // 400／422（影片無法處理、參數錯誤）重試也一樣；網路或 YouTube 暫時的問題可以重試
-          patch(next.key, { state: "failed", error: err.message, retryable: err.status !== 400 && err.status !== 422 });
+          patch(next.key, { state: "failed", error: textMsg(err.message), retryable: err.status !== 400 && err.status !== 422 });
         }
         continue;
       }
       if (!next.file) {
-        patch(next.key, { state: "failed", error: "沒有檔案", retryable: false });
+        patch(next.key, { state: "failed", error: msg("up.noFile"), retryable: false });
         continue;
       }
       const file = next.file;
       // 先在瀏覽器擋掉超過上限的檔案，不用等整個檔案傳完才被拒絕
       if (limitMb && file.size > limitMb * MB) {
-        patch(next.key, { state: "failed", error: `檔案超過 ${limitMb} MB，無法上傳`, retryable: false });
+        patch(next.key, { state: "failed", error: msg("up.tooLarge", { mb: limitMb }), retryable: false });
         continue;
       }
-      patch(next.key, { state: "uploading", loaded: 0, total: file.size, error: "" });
+      patch(next.key, { state: "uploading", loaded: 0, total: file.size, error: null });
       const { promise, abort } = uploadJob(file, itemOpts, (_, loaded, total) => patch(next.key, { loaded, total }), batchId);
       abortRef.current = abort;
       try {
@@ -153,11 +156,11 @@ export function useUploader(onFinished: (items: UploadItem[], added: UploadItem[
         patch(next.key, { state: "done", jobId: job.id, loaded: file.size, total: file.size });
       } catch (e) {
         if (stopRef.current) {
-          patch(next.key, { state: "pending", loaded: 0, error: "" });
+          patch(next.key, { state: "pending", loaded: 0, error: null });
         } else {
           const err = e as ApiError;
           // 400（壞檔、沒有音軌）與 413（太大）重試也一樣；網路中斷或伺服器錯誤可以重試
-          patch(next.key, { state: "failed", error: err.message, retryable: err.status !== 400 && err.status !== 413 });
+          patch(next.key, { state: "failed", error: textMsg(err.message), retryable: err.status !== 400 && err.status !== 413 });
         }
       } finally {
         abortRef.current = null;
@@ -177,7 +180,7 @@ export function useUploader(onFinished: (items: UploadItem[], added: UploadItem[
   };
 
   const retry = (key: number, opts: JobOptionsValue) => {
-    patch(key, { state: "pending", error: "", loaded: 0 });
+    patch(key, { state: "pending", error: null, loaded: 0 });
     if (!runningRef.current) void run(opts);
   };
 

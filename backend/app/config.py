@@ -4,6 +4,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 
 def _env(name: str, default: str) -> str:
@@ -38,6 +39,19 @@ class ModelOption:
         if not self.local_dir:
             return True
         return (Path(self.path) / "model.bin").is_file()
+
+    def label_msg(self) -> Any:
+        """顯示名稱（可延後翻譯的訊息 model.<id>.label）；訊息目錄沒有這個模型時用 label 原文。"""
+        return self._text("label", self.label)
+
+    def description_msg(self) -> Any:
+        return self._text("description", self.description)
+
+    def _text(self, kind: str, fallback: str) -> Any:
+        from .i18n import has, msg
+
+        code = f"model.{self.id}.{kind}"
+        return msg(code) if has(code) else fallback
 
 
 @dataclass

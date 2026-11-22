@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, type ReactNode } from "react";
 import { createPortal } from "react-dom";
+import { useT } from "../i18n";
 import { popInert, pushInert } from "./Modal";
 
 const FOCUSABLE =
@@ -22,6 +23,7 @@ export default function BottomSheet({
   initialFocus?: string;
   children: ReactNode;
 }) {
+  const t = useT();
   const ref = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLElement | null>(null);
   const onCloseRef = useRef(onClose);
@@ -88,7 +90,7 @@ export default function BottomSheet({
         <div className="sheet-head">
           <h2>{title}</h2>
           <button type="button" className="tbtn ink" onClick={onClose}>
-            關閉
+            {t("common.close")}
           </button>
         </div>
         {children}

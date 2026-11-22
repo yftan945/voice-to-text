@@ -18,6 +18,8 @@ import uuid
 from typing import Any
 
 from .. import db
+from .. import i18n
+from ..i18n import LocalizedError, msg
 
 ACTIVE_STATUSES = ("queued", "running")
 
@@ -33,9 +35,18 @@ BATCH_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 # 有新任務進佇列時叫醒 worker
 wakeup = threading.Event()
 
+# stage／error 欄位存的是可延後翻譯的訊息（JSON，見 app/i18n.py）；舊資料是中文字串，讀出時照原樣
+STAGE_QUEUED = i18n.dumps(msg("stage.queued"))
+STAGE_REQUEUED = i18n.dumps(msg("stage.requeued"))
+STAGE_PREPARING = i18n.dumps(msg("stage.preparing"))
+STAGE_CANCELED = i18n.dumps(msg("stage.canceled"))
+STAGE_FAILED = i18n.dumps(msg("stage.failed"))
+
 
 def _row(r) -> dict[str, Any]:
     d = dict(r)
+    d["stage"] = i18n.decode(d.get("stage"))
+    d["error"] = i18n.decode(d.get("error"))
     d["warnings"] = json.loads(d.get("warnings") or "[]")
     d["dictionary_ids"] = json.loads(d.get("dictionary_ids") or "[]")
     d["yt_manual_captions"] = json.loads(d.get("yt_manual_captions") or "[]")
@@ -65,9 +76,9 @@ def create(*, filename: str, model: str, diarize: bool, num_speakers: int | None
             " model, diarize, num_speakers, dictionary_ids, audio_ext, size_bytes, has_audio, duration,"
             " source, source_url, video_id, yt_title, yt_channel, yt_language, yt_manual_captions, use_captions,"
             " download_pending)"
-            f" VALUES (?, ?, ?, ?, {_NEXT_POSITION}, ?, 'queued', '排隊中', 0, ?, ?, ?, ?, ?, ?, 1, ?,"
+            f" VALUES (?, ?, ?, ?, {_NEXT_POSITION}, ?, 'queued', ?, 0, ?, ?, ?, ?, ?, ?, 1, ?,"
             " ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (job_id, filename, now, now, batch_id, model, int(diarize), num_speakers,
+            (job_id, filename, now, now, batch_id, STAGE_QUEUED, model, int(diarize), num_speakers,
              json.dumps(dictionary_ids), audio_ext, size_bytes, duration,
              "youtube" if youtube else "file", yt.get("source_url"), yt.get("video_id"), yt.get("title"),
              yt.get("channel"), yt.get("language"), json.dumps(yt.get("manual_captions") or []),
@@ -110,6 +121,7 @@ def list_batch(batch_id: str) -> list[dict[str, Any]]:
 
 
 def update(job_id: str, **fields: Any) -> None:
+    """更新欄位。stage／error 給訊息 dict（i18n.msg）時存成 JSON，讀出時依請求的語言 render。"""
     if not fields:
         return
     cols = []
@@ -117,6 +129,8 @@ def update(job_id: str, **fields: Any) -> None:
     for k, v in fields.items():
         if k in JSON_FIELDS:
             v = json.dumps(v, ensure_ascii=False)
+        elif isinstance(v, dict):
+            v = i18n.dumps(v)
         elif isinstance(v, bool):
             v = int(v)
         cols.append(f"{k} = ?")
@@ -135,9 +149,9 @@ def claim_next() -> dict[str, Any] | None:
         if r is None:
             return None
         conn.execute(
-            "UPDATE jobs SET status = 'running', started_at = ?, finished_at = NULL, stage = '準備中',"
+            "UPDATE jobs SET status = 'running', started_at = ?, finished_at = NULL, stage = ?,"
             " progress = 0, error = NULL WHERE id = ?",
-            (time.time(), r["id"]),
+            (time.time(), STAGE_PREPARING, r["id"]),
         )
         job_id = r["id"]
     return get(job_id)
@@ -145,7 +159,7 @@ def claim_next() -> dict[str, Any] | None:
 
 # 容器重啟後最多重新排隊幾次；再中斷就標為失敗，避免壞檔讓程式一直崩潰重來
 MAX_RESTART_REQUEUES = 2
-RESTART_FAILED_MESSAGE = "處理時程式中斷多次，可能是檔案過長或損壞"
+RESTART_FAILED_MESSAGE = i18n.dumps(msg("job.error.restart_failed"))
 
 
 def requeue_unfinished() -> int:
@@ -153,14 +167,15 @@ def requeue_unfinished() -> int:
     now = time.time()
     with db.transaction() as conn:
         conn.execute(
-            "UPDATE jobs SET status = 'failed', stage = '失敗', finished_at = ?, error = ?,"
+            "UPDATE jobs SET status = 'failed', stage = ?, finished_at = ?, error = ?,"
             " cancel_requested = 0 WHERE status = 'running' AND attempts >= ?",
-            (now, RESTART_FAILED_MESSAGE, MAX_RESTART_REQUEUES),
+            (STAGE_FAILED, now, RESTART_FAILED_MESSAGE, MAX_RESTART_REQUEUES),
         )
         # 上次處理到一半的任務原本就在最前面，放回佇列時排在最前
         cur = conn.execute(
-            "UPDATE jobs SET status = 'queued', stage = '排隊中（重新啟動後重新排隊）', progress = 0,"
-            f" attempts = attempts + 1, position = {_FIRST_POSITION} WHERE status = 'running'"
+            "UPDATE jobs SET status = 'queued', stage = ?, progress = 0,"
+            f" attempts = attempts + 1, position = {_FIRST_POSITION} WHERE status = 'running'",
+            (STAGE_REQUEUED,),
         )
         n = cur.rowcount
     if n:
@@ -178,13 +193,13 @@ def requeue(job_id: str, *, model: str, diarize: bool, num_speakers: int | None,
     """
     with db.connect() as conn:
         cur = conn.execute(
-            "UPDATE jobs SET status = 'queued', stage = '排隊中', progress = 0, error = NULL,"
+            "UPDATE jobs SET status = 'queued', stage = ?, progress = 0, error = NULL,"
             " warnings = '[]', model = ?, diarize = ?, num_speakers = ?, dictionary_ids = ?,"
             " use_captions = COALESCE(?, use_captions),"
             " cancel_requested = 0, attempts = 0, queued_at = ?, started_at = NULL, finished_at = NULL,"
             f" position = {_NEXT_POSITION}"
             " WHERE id = ? AND status NOT IN ('queued', 'running') AND has_audio = 1",
-            (model, int(diarize), num_speakers, json.dumps(dictionary_ids),
+            (STAGE_QUEUED, model, int(diarize), num_speakers, json.dumps(dictionary_ids),
              None if use_captions is None else int(use_captions), time.time(), job_id),
         )
     if cur.rowcount:
@@ -192,8 +207,8 @@ def requeue(job_id: str, *, model: str, diarize: bool, num_speakers: int | None,
     return cur.rowcount > 0
 
 
-class NotQueuedError(Exception):
-    """任務已經不在排隊中（開始處理或已結束），不能修改設定；訊息可以直接顯示給使用者。"""
+class NotQueuedError(LocalizedError):
+    """任務已經不在排隊中（開始處理或已結束），不能修改設定；msg 可以直接顯示給使用者。"""
 
 
 # 排隊中可以修改的設定欄位（不含 position、batch_id、queued_at：修改設定不影響排隊順序與批次）
@@ -232,8 +247,8 @@ def update_queued_options(job_id: str, **fields: Any) -> dict[str, Any] | None:
             if r is None:
                 raise KeyError(job_id)
             if r["status"] == "running":
-                raise NotQueuedError("任務已經開始處理，無法修改設定")
-            raise NotQueuedError("任務已經結束，無法修改設定")
+                raise NotQueuedError("job.options.already_started")
+            raise NotQueuedError("job.options.already_finished")
     # 交易結束後才讀：這中間被刪除時回傳 None
     return get(job_id)
 
@@ -252,8 +267,8 @@ def queue_position(job_id: str) -> int | None:
     return int(n)
 
 
-class MoveError(Exception):
-    """不能調整順序（任務不在排隊中、目標任務已經開始處理等），訊息可以直接顯示給使用者。"""
+class MoveError(LocalizedError):
+    """不能調整順序（任務不在排隊中、目標任務已經開始處理等），msg 可以直接顯示給使用者。"""
 
 
 MOVE_DIRECTIONS = ("front", "back", "up", "down")
@@ -277,9 +292,9 @@ def move(job_id: str, *, to: str | None = None, before: str | None = None,
         if r is None:
             raise KeyError(job_id)
         if r["status"] == "running":
-            raise MoveError("處理中的任務不能移動")
+            raise MoveError("queue.move.running")
         if r["status"] != "queued":
-            raise MoveError("只有排隊中的任務可以調整順序")
+            raise MoveError("queue.move.not_queued")
         ids = [x["id"] for x in conn.execute(
             f"SELECT id FROM jobs WHERE status = 'queued' ORDER BY {QUEUE_ORDER}").fetchall()]
         i = ids.index(job_id)
@@ -297,7 +312,7 @@ def move(job_id: str, *, to: str | None = None, before: str | None = None,
             if target == job_id:
                 j = i
             elif target not in ids:
-                raise MoveError("目標任務已經開始處理或不在佇列中，請重新整理後再試")
+                raise MoveError("queue.move.target_gone")
             else:
                 j = ids.index(target) + (1 if after is not None else 0)
         ids.insert(j, job_id)
@@ -313,8 +328,8 @@ def request_cancel(job_id: str) -> str | None:
             return None
         if r["status"] == "queued":
             conn.execute(
-                "UPDATE jobs SET status = 'canceled', stage = '已取消', finished_at = ? WHERE id = ?",
-                (time.time(), job_id),
+                "UPDATE jobs SET status = 'canceled', stage = ?, finished_at = ? WHERE id = ?",
+                (STAGE_CANCELED, time.time(), job_id),
             )
             return "canceled"
         if r["status"] == "running":
@@ -340,9 +355,9 @@ def cancel_batch(batch_id: str) -> dict[str, int] | None:
         if not total:
             return None
         canceled = conn.execute(
-            "UPDATE jobs SET status = 'canceled', stage = '已取消', finished_at = ?"
+            "UPDATE jobs SET status = 'canceled', stage = ?, finished_at = ?"
             " WHERE batch_id = ? AND status = 'queued'",
-            (now, batch_id),
+            (STAGE_CANCELED, now, batch_id),
         ).rowcount
         canceling = conn.execute(
             "UPDATE jobs SET cancel_requested = 1 WHERE batch_id = ? AND status = 'running'",

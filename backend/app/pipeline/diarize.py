@@ -5,6 +5,7 @@ import logging
 from typing import Any, Callable, Sequence
 
 from ..config import settings
+from ..i18n import DEFAULT_LANG, LocalizedError, render
 from .assign import Turn
 
 log = logging.getLogger(__name__)
@@ -14,14 +15,12 @@ SAMPLE_RATE = 16000
 EMBED_MAX_SECONDS = 30.0
 EMBED_MIN_TURN = 0.5
 
-GATED_HINT = (
-    "pyannote 模型無法下載：請確認 HF_TOKEN 已設定，且已在 HuggingFace 同意 "
-    "pyannote/speaker-diarization-community-1 的使用條款"
-)
+# zh-TW 文字（log 用）；給使用者看的是 i18n 的 diarize.gated
+GATED_HINT = render("diarize.gated", {}, DEFAULT_LANG)
 
 
-class DiarizationUnavailable(RuntimeError):
-    pass
+class DiarizationUnavailable(LocalizedError, RuntimeError):
+    """講者辨識模型無法使用；msg 可以直接顯示給使用者（見 i18n 的 diarize.*）。"""
 
 
 def _torch_device():
@@ -32,7 +31,7 @@ def _torch_device():
 
 def load_pipeline():
     if not settings.hf_token:
-        raise DiarizationUnavailable("沒有設定 HF_TOKEN，無法下載 pyannote 講者辨識模型")
+        raise DiarizationUnavailable("diarize.no_token")
     from pyannote.audio import Pipeline
 
     try:
@@ -41,10 +40,10 @@ def load_pipeline():
         from .errors import is_gated_error
 
         if is_gated_error(e):
-            raise DiarizationUnavailable(GATED_HINT) from e
+            raise DiarizationUnavailable("diarize.gated") from e
         raise
     if pipeline is None:  # 舊版 pyannote 在 gated 時會回傳 None 而不是丟例外
-        raise DiarizationUnavailable(GATED_HINT)
+        raise DiarizationUnavailable("diarize.gated")
     pipeline.to(_torch_device())
     return pipeline
 
@@ -96,7 +95,7 @@ def load_embedding_model(device: str | None = None):
     token = settings.hf_token or None
     model = Model.from_pretrained(settings.embedding_model, token=token)
     if model is None:
-        raise DiarizationUnavailable(f"無法下載聲紋模型 {settings.embedding_model}")
+        raise DiarizationUnavailable("diarize.embedding_unavailable", model=settings.embedding_model)
     import torch
 
     dev = torch.device(device) if device else _torch_device()

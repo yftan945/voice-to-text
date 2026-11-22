@@ -11,9 +11,7 @@
 
 A self-hosted speech-to-text web app. Upload a recording or paste a YouTube link and get a transcript from your own GPU, with Mandarin–English code-switching, automatic speaker labels, a voiceprint library that remembers the people you record, an editor that follows playback, and subtitle export. Audio and transcripts stay on your machine. Nothing is sent to the cloud.
 
-The interface is in Traditional Chinese (Taiwan).
-
-![Result page: speaker timeline, chat-style transcript and player](docs/images/result.png)
+![Result page: speaker timeline, chat-style transcript and player](docs/images/result-en.png)
 
 ## Features
 
@@ -25,12 +23,13 @@ The interface is in Traditional Chinese (Taiwan).
 - **Background queue**: upload many files at once and close the tab while they process. You see live progress, queue position and an estimated finish time. Queued jobs can be reordered, and their settings can be changed before they start.
 - **Edit while you listen**: click the speaker timeline to jump to a point, or click a line to play from there. Edit text, reassign or merge speakers. The original result is kept, so you can revert in one click.
 - **Export**: TXT, Markdown, SRT, VTT, JSON.
+- **English and Traditional Chinese**: switch the interface language from the nav bar. It follows your browser language by default, and error messages and exports follow it too.
 - **Mobile-friendly**: responsive layout with a pull-up player panel, in light and dark themes.
 
 <p align="center">
-  <img src="docs/images/tasks.png" width="70%" alt="Tasks page: running and queued jobs with progress and estimates">
+  <img src="docs/images/tasks-en.png" width="70%" alt="Tasks page: running and queued jobs with progress and estimates">
   &nbsp;
-  <img src="docs/images/mobile.png" width="24%" alt="Result page on mobile">
+  <img src="docs/images/mobile-en.png" width="24%" alt="Result page on mobile">
 </p>
 
 ## Requirements
