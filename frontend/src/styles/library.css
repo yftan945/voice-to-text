@@ -1,0 +1,59 @@
+/* 字典、聲紋庫：細線清單，不用卡片 */
+
+.lib .split { display: grid; grid-template-columns: 260px minmax(0, 1fr); gap: 0 40px; align-items: start; }
+.split-list { position: sticky; top: calc(var(--app-header-h) + 16px); }
+.split-list > .btn { width: 100%; margin-bottom: 12px; }
+.list { list-style: none; margin: 0; padding: 0; border-top: 1.5px solid var(--ink); }
+.list li { border-bottom: 1px solid var(--rule); }
+.list-item {
+  display: block; width: 100%; padding: 10px 10px 10px 12px; text-align: left; background: none; border: 0;
+  border-left: 2px solid transparent; color: var(--ink);
+}
+.list-item:hover { background: var(--wash); }
+.list-item.on { border-left-color: var(--ink); background: var(--wash); }
+.li-name { display: block; font: 400 17px/1.5 var(--serif); }
+.list-item small { display: block; color: var(--muted); font-size: 12.5px; }
+
+.split-main { min-width: 0; }
+.syntax h2 { margin: 20px 0 8px; font: 600 15px/1.4 var(--sans); }
+.example, .field.mono { font-family: ui-monospace, "SF Mono", Menlo, var(--sans); font-size: 14px; }
+.example { margin: 0; padding: 14px 16px; background: var(--wash); border-left: 2px solid var(--rule-strong); white-space: pre-wrap; line-height: 1.7; }
+.editor-form { display: grid; gap: 6px; }
+.editor-form .lab:not(:first-child) { margin-top: 12px; }
+.editor-form textarea { min-height: 320px; }
+code { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: .92em; background: var(--wash); padding: 1px 4px; border-radius: 3px; }
+.form-acts { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin-top: 12px; }
+.form-acts .status { flex: 1; color: var(--muted); font-size: 14px; text-align: right; }
+.form-acts .status.dirty { color: var(--warn); font-weight: 600; }
+.form-acts .grow { flex: 1; }
+
+.enroll { display: grid; gap: 14px; margin-top: 16px; max-width: 720px; }
+.vp-list { list-style: none; margin: 0; padding: 0; }
+.vp { display: flex; align-items: center; gap: 16px; padding: 14px 0; border-bottom: 1px solid var(--rule); }
+.vp-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.vp-name { font: 400 18px/1.5 var(--serif); }
+.vp-main small { color: var(--muted); font-size: var(--fs-small); }
+.vp-acts { display: flex; gap: 14px; }
+
+/* 播放清單勾選（YouTube） */
+.pl-title { font-family: var(--serif); font-weight: 600; color: var(--ink); }
+.pl-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-bottom: 6px; border-bottom: 1.5px solid var(--ink); }
+.pl-all { display: inline-flex; align-items: center; gap: 8px; min-height: 36px; font-weight: 600; }
+.pl-list { list-style: none; margin: 0; padding: 0; max-height: 50vh; overflow: auto; }
+.pl-list li { border-bottom: 1px solid var(--rule); }
+.pl-list label { display: flex; gap: 10px; align-items: flex-start; padding: 8px 0; cursor: pointer; }
+.pl-list li.disabled label { cursor: not-allowed; opacity: .6; }
+.pl-main { display: flex; flex-direction: column; min-width: 0; }
+.pl-main small { font-size: 12.5px; }
+.pl-list input, .pl-all input { margin-top: 4px; accent-color: var(--ink); width: 16px; height: 16px; }
+
+@media (max-width: 859px) {
+  .lib .split { grid-template-columns: 1fr; gap: 20px; }
+  .split-list { position: static; }
+  .list-item { min-height: 44px; }
+  .vp { flex-wrap: wrap; gap: 0 16px; }
+  .vp-acts { gap: 0; margin-left: -6px; }
+  .drop { grid-template-columns: 1fr; padding: 24px 28px; }
+  .pl-list label { min-height: 44px; }
+  .pl-list input, .pl-all input { width: 20px; height: 20px; }
+}

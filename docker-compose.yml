@@ -1,0 +1,37 @@
+name: voice-to-text
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: voice-to-text:0.1.0
+    restart: unless-stopped
+    # 用 tini 當 PID 1：yt-dlp 叫起來的 deno 被砍掉（取消、逾時）後由它回收，不會變成殭屍行程
+    init: true
+    # 以 root 執行：models volume 由 benchmark 容器（root）建立，需要共用並寫入同一份 HF 快取
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      DATA_DIR: /data
+      MODELS_DIR: /models
+      HF_HOME: /models/hf
+    volumes:
+      - ./data:/data
+      - ./models:/models
+    # 只開內網 IP 與本機，不綁全部介面；BIND_IP 寫在 .env（例如 192.168.1.10）
+    ports:
+      - "${BIND_IP:?請在 .env 設定 BIND_IP（主機的內網 IP）}:8810:8080"
+      - "127.0.0.1:8810:8080"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    mem_limit: 10g
+    shm_size: 1g
+    logging:
+      driver: json-file
+      options: {max-size: 10m, max-file: "3"}

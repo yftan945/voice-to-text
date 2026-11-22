@@ -1,0 +1,5 @@
+# 推論套件；torch／torchaudio 由 Dockerfile 從 PyTorch cu128 index 安裝
+# whisperx 3.8 需要 torch~=2.8、pyannote-audio>=4.0
+whisperx==3.8.6
+faster-whisper>=1.2.0
+pyannote.audio>=4.0.0,<5

@@ -1,0 +1,7 @@
+torch==2.8.0
+torchaudio==2.8.0
+torchvision==0.23.0
+# whisperx 3.8 要求 huggingface-hub<1.0，transformers 5.x 需要 hub>=1.0，先固定在 4.x 避免 pip 長時間回溯
+transformers>=4.48,<5
+huggingface-hub<1.0
+torchcodec>=0.7,<0.8

@@ -1,0 +1,15 @@
+.env
+data/
+models/
+node_modules/
+dist/
+__pycache__/
+.pytest_cache/
+*.pyc
+.DS_Store
+*.tsbuildinfo
+.deploy.env
+# 個人資料與測試錄音（不公開）
+bench/
+design-demos/
+docs/

@@ -1,0 +1,161 @@
+/*
+ * 設計 token（方向 A「台本」）：色彩、字體、間距、圓角、動態。
+ * 淺色／深色：預設跟著系統，<html data-theme="light|dark"> 手動指定（存在 localStorage v2t.theme）。
+ * 色彩分三層：先宣告淺色的純色值；支援 light-dark() 的瀏覽器用 light-dark() 跟著 color-scheme 切換；
+ * 不支援的（iOS 16 的 Safari 等）用 prefers-color-scheme 與 data-theme="dark" 換成深色的純色值。
+ * custom property 不檢查內容，不支援 light-dark() 的瀏覽器也會接受 --x: light-dark(…) 然後在使用時失效，
+ * 所以 light-dark() 一定要放在 @supports 裡面。改顏色時三個地方要一起改。
+ * 鈷藍只代表「現在」（播放中、處理中、焦點）；主要按鈕用墨色實心。
+ */
+:root {
+  color-scheme: light dark;
+
+  /* 色彩（淺色） */
+  --paper: #FBFBF9;
+  --ink: #1E2229;
+  --muted: #5F6672;
+  --rule: #E2E2DC;
+  --rule-strong: #C9CAC4;
+  --wash: #F3F3EF;
+  --bubble: #FFFFFF;
+  --cobalt: #2C4FB8;
+  --cobalt-wash: rgba(44, 79, 184, .06);
+  --danger: #B3372A;
+  --ok: #1F6F63;
+  --warn: #81600A;
+  /* 陰影的顏色另外放變數（light-dark() 只接受顏色） */
+  --shadow-c: rgba(30, 34, 41, .11);
+  --shadow-c2: rgba(30, 34, 41, .08);
+  --scrim: rgba(30, 34, 41, .32);
+
+  /*
+   * 講者色：--spN 色塊（色帶、小方塊），--spNt 文字（名字、頭像底），兩者對紙色與色帶底色（--wash）都有 3:1 以上。
+   * 第 6–10 位（--sp5t..9t）：同樣五個色相、加深（淺色）或加亮（深色）的文字色，色帶上當斜線紋路的線條色。
+   */
+  --sp0: #2E8B7E; --sp0t: #1F6F63; --sp5t: #1F5852;
+  --sp1: #A67A12; --sp1t: #81600A; --sp6t: #634D13;
+  --sp2: #9A4F7D; --sp2t: #86406A; --sp7t: #673756;
+  --sp3: #C2543F; --sp3t: #A8412E; --sp8t: #7F382C;
+  --sp4: #6B63A8; --sp4t: #5A52A0; --sp9t: #48447C;
+
+  --shadow: 0 10px 30px var(--shadow-c), 0 1px 3px var(--shadow-c2);
+  --shadow-up: 0 -8px 28px var(--shadow-c), 0 0 0 1px var(--rule);
+
+  /* 字體（自己架設的 Noto，見 main.tsx；後面是系統備援） */
+  --serif: "Noto Serif TC", "Songti TC", "Source Han Serif TC", serif;
+  --sans: "Noto Sans TC", "PingFang TC", "Heiti TC", system-ui, sans-serif;
+  --line-size: 19px;          /* 逐字稿（宋體） */
+  --line-height: 1.85;
+  --measure: 36em;            /* 逐字稿欄寬，約 36 個全形字 */
+  --fs-ui: 15px;
+  --fs-small: 13px;
+  --fs-tc: 12.5px;            /* 時間碼 */
+  --fs-title: 28px;
+  --fs-h1: 32px;
+
+  /* 間距與尺寸 */
+  --gap-1: 4px;
+  --gap-2: 8px;
+  --gap-3: 12px;
+  --gap-4: 16px;
+  --gap-5: 24px;
+  --gap-6: 36px;
+  --page-pad: 28px;
+  --nav-h: 56px;
+  /* 固定在頂端的標題列實際佔的高度（含 iPhone 瀏海安全區）；其他 sticky 元素都以它為基準往下排 */
+  --app-header-h: calc(var(--nav-h) + env(safe-area-inset-top, 0px));
+  --tap: 36px;                /* 桌機按鈕高度；手機改 44px */
+  --radius: 6px;
+  --radius-lg: 10px;
+
+  /* 動態 */
+  --ease: cubic-bezier(.2, .9, .3, 1);
+  --draw-ms: 600ms;
+}
+
+:root[data-theme="light"] { color-scheme: light; }
+:root[data-theme="dark"] { color-scheme: dark; }
+
+/* 支援 light-dark()：跟著 color-scheme（系統設定或 data-theme）切換 */
+@supports (color: light-dark(#000, #fff)) {
+  :root {
+    --paper: light-dark(#FBFBF9, #14171C);
+    --ink: light-dark(#1E2229, #E4E2DC);
+    --muted: light-dark(#5F6672, #9AA1AD);
+    --rule: light-dark(#E2E2DC, #262B33);
+    --rule-strong: light-dark(#C9CAC4, #3A404A);
+    --wash: light-dark(#F3F3EF, #1B1F26);
+    --bubble: light-dark(#FFFFFF, #191D23);
+    --cobalt: light-dark(#2C4FB8, #7C9BFF);
+    --cobalt-wash: light-dark(rgba(44, 79, 184, .06), rgba(124, 155, 255, .10));
+    --danger: light-dark(#B3372A, #FF8F80);
+    --ok: light-dark(#1F6F63, #6FCDBD);
+    --warn: light-dark(#81600A, #E4C066);
+    --shadow-c: light-dark(rgba(30, 34, 41, .11), rgba(0, 0, 0, .48));
+    --shadow-c2: light-dark(rgba(30, 34, 41, .08), rgba(0, 0, 0, .4));
+    --scrim: light-dark(rgba(30, 34, 41, .32), rgba(0, 0, 0, .55));
+    --sp0: light-dark(#2E8B7E, #4DB6A5); --sp0t: light-dark(#1F6F63, #6FCDBD); --sp5t: light-dark(#1F5852, #92D3C6);
+    --sp1: light-dark(#A67A12, #D4A93E); --sp1t: light-dark(#81600A, #E4C066); --sp6t: light-dark(#634D13, #E4CA89);
+    --sp2: light-dark(#9A4F7D, #C77BA6); --sp2t: light-dark(#86406A, #DB9BBF); --sp7t: light-dark(#673756, #DEB0C8);
+    --sp3: light-dark(#C2543F, #E0806A); --sp3t: light-dark(#A8412E, #EBA08D); --sp8t: light-dark(#7F382C, #E9B4A5);
+    --sp4: light-dark(#6B63A8, #9C95DC); --sp4t: light-dark(#5A52A0, #B6B0E8); --sp9t: light-dark(#48447C, #C4BFE4);
+  }
+}
+
+/* 不支援 light-dark()（iOS 16 的 Safari 等）：深色的純色值 */
+@supports not (color: light-dark(#000, #fff)) {
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --paper: #14171C; --ink: #E4E2DC; --muted: #9AA1AD; --rule: #262B33; --rule-strong: #3A404A;
+      --wash: #1B1F26; --bubble: #191D23; --cobalt: #7C9BFF; --cobalt-wash: rgba(124, 155, 255, .10);
+      --danger: #FF8F80; --ok: #6FCDBD; --warn: #E4C066;
+      --shadow-c: rgba(0, 0, 0, .48); --shadow-c2: rgba(0, 0, 0, .4); --scrim: rgba(0, 0, 0, .55);
+      --sp0: #4DB6A5; --sp0t: #6FCDBD; --sp5t: #92D3C6;
+      --sp1: #D4A93E; --sp1t: #E4C066; --sp6t: #E4CA89;
+      --sp2: #C77BA6; --sp2t: #DB9BBF; --sp7t: #DEB0C8;
+      --sp3: #E0806A; --sp3t: #EBA08D; --sp8t: #E9B4A5;
+      --sp4: #9C95DC; --sp4t: #B6B0E8; --sp9t: #C4BFE4;
+    }
+  }
+  :root[data-theme="dark"] {
+    --paper: #14171C; --ink: #E4E2DC; --muted: #9AA1AD; --rule: #262B33; --rule-strong: #3A404A;
+    --wash: #1B1F26; --bubble: #191D23; --cobalt: #7C9BFF; --cobalt-wash: rgba(124, 155, 255, .10);
+    --danger: #FF8F80; --ok: #6FCDBD; --warn: #E4C066;
+    --shadow-c: rgba(0, 0, 0, .48); --shadow-c2: rgba(0, 0, 0, .4); --scrim: rgba(0, 0, 0, .55);
+    --sp0: #4DB6A5; --sp0t: #6FCDBD; --sp5t: #92D3C6;
+    --sp1: #D4A93E; --sp1t: #E4C066; --sp6t: #E4CA89;
+    --sp2: #C77BA6; --sp2t: #DB9BBF; --sp7t: #DEB0C8;
+    --sp3: #E0806A; --sp3t: #EBA08D; --sp8t: #E9B4A5;
+    --sp4: #9C95DC; --sp4t: #B6B0E8; --sp9t: #C4BFE4;
+  }
+}
+
+@media (max-width: 859px) {
+  :root {
+    --line-size: 18px;
+    --fs-title: 20px;
+    --fs-h1: 26px;
+    --page-pad: 16px;
+    --tap: 44px;
+  }
+}
+
+/*
+ * 講者色：.spN 設定 --sp（色塊）、--spt（文字、頭像底）、--sp-fill（色帶與小方塊的填色），元件只用這三個變數。
+ * 每一級都要明確設定 --sp-fill，巢狀時才不會繼承到外層講者的紋路。
+ */
+.sp0 { --sp: var(--sp0); --spt: var(--sp0t); --sp-fill: var(--sp0); }
+.sp1 { --sp: var(--sp1); --spt: var(--sp1t); --sp-fill: var(--sp1); }
+.sp2 { --sp: var(--sp2); --spt: var(--sp2t); --sp-fill: var(--sp2); }
+.sp3 { --sp: var(--sp3); --spt: var(--sp3t); --sp-fill: var(--sp3); }
+.sp4 { --sp: var(--sp4); --spt: var(--sp4t); --sp-fill: var(--sp4); }
+/*
+ * 第 6–10 位講者：同樣五個色相加斜線紋路（不是調淡，調淡後在色帶底色上對比不到 3:1）。
+ * 底色 --spN 與線條 --spNt 對色帶底色都在 3:1 以上（數值見上面 token 的說明）。
+ */
+.sp5 { --sp: var(--sp0); --spt: var(--sp5t); --sp-fill: repeating-linear-gradient(135deg, var(--sp0) 0 3px, var(--sp5t) 3px 5px); }
+.sp6 { --sp: var(--sp1); --spt: var(--sp6t); --sp-fill: repeating-linear-gradient(135deg, var(--sp1) 0 3px, var(--sp6t) 3px 5px); }
+.sp7 { --sp: var(--sp2); --spt: var(--sp7t); --sp-fill: repeating-linear-gradient(135deg, var(--sp2) 0 3px, var(--sp7t) 3px 5px); }
+.sp8 { --sp: var(--sp3); --spt: var(--sp8t); --sp-fill: repeating-linear-gradient(135deg, var(--sp3) 0 3px, var(--sp8t) 3px 5px); }
+.sp9 { --sp: var(--sp4); --spt: var(--sp9t); --sp-fill: repeating-linear-gradient(135deg, var(--sp4) 0 3px, var(--sp9t) 3px 5px); }
+.spx { --sp: var(--rule-strong); --spt: var(--muted); --sp-fill: var(--rule-strong); }

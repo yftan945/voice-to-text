@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="zh-Hant-TW">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="theme-color" content="#FBFBF9" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#14171C" media="(prefers-color-scheme: dark)" />
+    <title>語音轉文字</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%231E2229'/%3E%3Crect x='6' y='13' width='5' height='6' fill='%232E8B7E'/%3E%3Crect x='11' y='13' width='9' height='6' fill='%23B98A1E'/%3E%3Crect x='20' y='13' width='6' height='6' fill='%239A4F7D'/%3E%3C/svg%3E" />
+    <script>
+      // 手動選的外觀在第一次繪製前套用，避免閃一下系統色
+      try {
+        var t = localStorage.getItem("v2t.theme");
+        if (t === "light" || t === "dark") document.documentElement.dataset.theme = t;
+      } catch (e) {}
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

@@ -1,0 +1,6 @@
+# YouTube 下載（獨立一層，不跟推論環境一起重建；YouTube 改版時只要改這裡的版本再部署）
+# - yt-dlp 2026.10.26：目前最新正式版。YouTube 要用外部 JS runtime 解 JS challenge（n／sig），
+#   [default] 含 yt-dlp-ejs（challenge solver 腳本）；[deno] 從 PyPI 安裝 deno 執行檔（yt-dlp 預設只啟用 deno）；
+#   [curl-cffi] 讓需要瀏覽器 TLS 指紋（impersonation）的請求可以用。
+# - 不需要 PO Token：預設的 player client（tv_samsung、visionos、web）下載音訊與字幕目前不需要。
+yt-dlp[default,deno,curl-cffi]==2026.10.26

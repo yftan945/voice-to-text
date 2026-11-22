@@ -1,0 +1,6 @@
+# Web／資料層（推論相關套件在 Dockerfile 另外用 PyTorch CUDA index 安裝）
+fastapi==0.163.2
+uvicorn[standard]==0.54.0
+python-multipart==0.0.34
+opencc==1.4.2
+numpy>=2.1

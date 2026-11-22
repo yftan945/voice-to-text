@@ -1,0 +1,11 @@
+.git
+data
+models
+bench
+bench-data
+docs
+.env
+**/node_modules
+**/dist
+**/__pycache__
+**/.pytest_cache
