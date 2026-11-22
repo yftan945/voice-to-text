@@ -4,11 +4,10 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: voice-to-text:0.1.0
+    image: voice-to-text:1.0.0
     restart: unless-stopped
     # 用 tini 當 PID 1：yt-dlp 叫起來的 deno 被砍掉（取消、逾時）後由它回收，不會變成殭屍行程
     init: true
-    # 以 root 執行：models volume 由 benchmark 容器（root）建立，需要共用並寫入同一份 HF 快取
     env_file:
       - path: .env
         required: false

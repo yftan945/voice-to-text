@@ -12,4 +12,4 @@ __pycache__/
 # 個人資料與測試錄音（不公開）
 bench/
 design-demos/
-docs/
+docs/spec.md
