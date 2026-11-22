@@ -4,7 +4,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: voice-to-text:1.1.0
+    image: voice-to-text:1.1.1
     restart: unless-stopped
     # 用 tini 當 PID 1：yt-dlp 叫起來的 deno 被砍掉（取消、逾時）後由它回收，不會變成殭屍行程
     init: true

@@ -65,7 +65,6 @@ svg.i.fill { fill: currentColor; stroke: none; }
 .nav .lang-btn { font: 600 13.5px/1 var(--sans); letter-spacing: .03em; color: var(--muted); white-space: nowrap; }
 .nav .lang-btn:hover { color: var(--ink); }
 .nav .lang-btn:lang(zh) { font-size: 15px; letter-spacing: 0; }
-.nav .brand-short { display: none; }
 /* 英文的頁名較長：窄螢幕改顯示簡稱（見 App.tsx 的 NAV） */
 .nav .l-short { display: none; }
 /* 「任務」旁的進行中數量（排隊中＋處理中）；讀屏軟體念連結的 aria-label，這裡 aria-hidden */
@@ -400,24 +399,18 @@ label.choice input { margin-top: 5px; accent-color: var(--ink); }
 }
 
 /* 手機窄寬度：品牌＋4 個連結＋徽章＋外觀與語言兩顆按鈕要在一行放得下。
-   先把完整品牌名稱換成簡稱（中文「語音」；英文沒有簡稱，維持 Voice to Text），再窄就整個收起品牌（「錄音」連結同樣回首頁），
-   並縮小間距（連結本身維持 44px 以上的觸控範圍，間距縮了看起來仍分得開）。
-   英文的連結較長，≤560px 先縮小字級與間距，留位置給 Voice to Text。
-   收起品牌的寬度是實際量出來的（含兩位數徽章）：英文品牌約 110px，≥496px 才放得下；
-   中文「語音」約 33px，≥406px 放得下（390／375／360 放不下，會把連結擠扁） */
+   品牌一律顯示完整名稱，放不下就整個收起（「錄音」連結同樣回首頁），不顯示截短的名稱（「語音」看起來像被截斷）。
+   ≤560px 縮小間距（連結本身維持 44px 以上的觸控範圍，間距縮了看起來仍分得開）；英文的連結較長，再縮小字級。
+   收起品牌的寬度是實際量出來的（含兩位數徽章）：英文「Voice to Text」約 110px，≥496px 才放得下；
+   中文「語音轉文字」約 82px，≥460px 放得下（440／430／414／402／390 放不下，會把連結擠扁） */
 @media (max-width: 560px) {
-  .nav .brand-full { display: none; }
-  .nav .brand-short { display: inline; }
-  html:lang(en) .nav { gap: 10px; }
+  .nav { gap: 10px; }
   html:lang(en) .nav a.link { font-size: 14px; }
 }
 @media (max-width: 495px) {
   html:lang(en) .nav .brand { display: none; }
 }
-@media (max-width: 440px) {
-  .nav { gap: 10px; }
-}
-@media (max-width: 405px) {
+@media (max-width: 459px) {
   .nav .brand { display: none; }
 }
 @media (max-width: 374px) {

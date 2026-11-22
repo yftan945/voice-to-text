@@ -116,10 +116,9 @@ function NavBar() {
   const activeCount = useActiveCount();
   return (
     <header className="nav">
-      {/* 窄螢幕放不下完整品牌名稱時只顯示「語音」，再窄就收起（「錄音」連結也回首頁）；見 base.css */}
-      <Link to="/" className="brand" aria-label={t("app.name")}>
-        <span className="brand-full">{t("app.name")}</span>
-        <span className="brand-short">{t("app.nameShort")}</span>
+      {/* 窄螢幕放不下完整品牌名稱時整個收起（不顯示截短的名稱；「錄音」連結也回首頁）；見 base.css */}
+      <Link to="/" className="brand">
+        {t("app.name")}
       </Link>
       {NAV.map(([to, key, shortKey]) => {
         const label = t(key);

@@ -8,7 +8,6 @@ const pl = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one :
 const en: Messages = {
   // ---------- App、導覽、外觀、語言 ----------
   "app.name": "Voice to Text",
-  "app.nameShort": "Voice to Text",
   "app.title": (p) => `${p.page} · Voice to Text`,
   "app.notFound": "This page doesn't exist.",
   "nav.record": "Recordings",

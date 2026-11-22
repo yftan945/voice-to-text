@@ -8,7 +8,6 @@ type N = { n: number };
 const zhTW = {
   // ---------- App、導覽、外觀、語言 ----------
   "app.name": "語音轉文字",
-  "app.nameShort": "語音",
   "app.title": (p: { page: string }) => `${p.page}・語音轉文字`,
   "app.notFound": "找不到這個頁面。",
   "nav.record": "錄音",
